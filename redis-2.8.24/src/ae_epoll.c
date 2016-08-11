@@ -33,7 +33,7 @@
 
 typedef struct aeApiState {
     int epfd;
-    struct epoll_event *events;
+    struct epoll_event *events;     // 数组，大小等于aeEventLoop接口中setsize
 } aeApiState;
 
 static int aeApiCreate(aeEventLoop *eventLoop) {

@@ -103,6 +103,10 @@ int aeGetSetSize(aeEventLoop *eventLoop) {
  * performed at all.
  *
  * Otherwise AE_OK is returned and the operation is successful. */
+ /* 运行时配置更改时会调用到
+  * 如果与新setsize与当前setsize相等，不作操作返回OK
+  * 如果当前maxfd >= 新setsize，不作操作返回error
+  */
 int aeResizeSetSize(aeEventLoop *eventLoop, int setsize) {
     int i;
 
@@ -116,6 +120,7 @@ int aeResizeSetSize(aeEventLoop *eventLoop, int setsize) {
 
     /* Make sure that if we created new slots, they are initialized with
      * an AE_NONE mask. */
+    // 初始化新增部分的内存
     for (i = eventLoop->maxfd+1; i < setsize; i++)
         eventLoop->events[i].mask = AE_NONE;
     return AE_OK;
@@ -132,6 +137,7 @@ void aeStop(aeEventLoop *eventLoop) {
     eventLoop->stop = 1;
 }
 
+/* 新增的fd必须小于setsize，同时内部会判断fd是否已经存在，已存在则更新*/
 int aeCreateFileEvent(aeEventLoop *eventLoop, int fd, int mask,
         aeFileProc *proc, void *clientData)
 {
@@ -152,6 +158,10 @@ int aeCreateFileEvent(aeEventLoop *eventLoop, int fd, int mask,
     return AE_OK;
 }
 
+/*
+ * 不一定会删除这个fd，比如原来监测该fd的可读可写，现在只监测可读，这时就是修改
+ * mask减为 AE_NONE 才表示删除，同时更新 maxfd
+ */
 void aeDeleteFileEvent(aeEventLoop *eventLoop, int fd, int mask)
 {
     if (fd >= eventLoop->setsize) return;
@@ -200,6 +210,7 @@ static void aeAddMillisecondsToNow(long long milliseconds, long *sec, long *ms) 
     *ms = when_ms;
 }
 
+/* 新增时添加到链表的头部 */
 long long aeCreateTimeEvent(aeEventLoop *eventLoop, long long milliseconds,
         aeTimeProc *proc, void *clientData,
         aeEventFinalizerProc *finalizerProc)
@@ -219,6 +230,7 @@ long long aeCreateTimeEvent(aeEventLoop *eventLoop, long long milliseconds,
     return id;
 }
 
+/* 遍历链表，没有对应的id时返回AE_ERR */
 int aeDeleteTimeEvent(aeEventLoop *eventLoop, long long id)
 {
     aeTimeEvent *te, *prev = NULL;
@@ -252,6 +264,7 @@ int aeDeleteTimeEvent(aeEventLoop *eventLoop, long long id)
  *    Much better but still insertion or deletion of timers is O(N).
  * 2) Use a skiplist to have this operation as O(1) and insertion as O(log(N)).
  */
+/* 搜索最先过时的timer即when比较小的 */
 static aeTimeEvent *aeSearchNearestTimer(aeEventLoop *eventLoop)
 {
     aeTimeEvent *te = eventLoop->timeEventHead;
