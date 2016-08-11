@@ -60,7 +60,7 @@ typedef void aeBeforeSleepProc(struct aeEventLoop *eventLoop);
 
 /* File event structure */
 typedef struct aeFileEvent {
-    int mask; /* one of AE_(READABLE|WRITABLE) */
+    int mask; /* one of AE_(READABLE|WRITABLE) */   // 创建时初始值 AE_NONE
     aeFileProc *rfileProc;
     aeFileProc *wfileProc;
     void *clientData;
@@ -86,12 +86,12 @@ typedef struct aeFiredEvent {
 /* State of an event based program */
 typedef struct aeEventLoop {
     int maxfd;   /* highest file descriptor currently registered */
-    int setsize; /* max number of file descriptors tracked */
+    int setsize; /* max number of file descriptors tracked*/    // 创建时指定
     long long timeEventNextId;
     time_t lastTime;     /* Used to detect system clock skew */
-    aeFileEvent *events; /* Registered events */
-    aeFiredEvent *fired; /* Fired events */
-    aeTimeEvent *timeEventHead;
+    aeFileEvent *events; /* Registered events */                // 长度为setsize的数组 
+    aeFiredEvent *fired; /* Fired events */                     // 长度为setsize的数组
+    aeTimeEvent *timeEventHead;                                 // 定时器单链表
     int stop;
     void *apidata; /* This is used for polling API specific data */
     aeBeforeSleepProc *beforesleep;
