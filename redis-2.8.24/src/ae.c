@@ -295,6 +295,7 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
      * events to be processed ASAP when this happens: the idea is that
      * processing events earlier is less dangerous than delaying them
      * indefinitely, and practice suggests it is. */
+    /* 如果检测到了时间跳跃，则触发所有定时器 */
     if (now < eventLoop->lastTime) {
         te = eventLoop->timeEventHead;
         while(te) {
@@ -306,6 +307,7 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
 
     te = eventLoop->timeEventHead;
     maxId = eventLoop->timeEventNextId-1;
+    /* 有事件被处理，从链表头重新开始，根据回调的返回值判断是否该定时器要继续添加进去 */ 
     while(te) {
         long now_sec, now_ms;
         long long id;
@@ -362,6 +364,11 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
  * the events that's possible to process without to wait are processed.
  *
  * The function returns the number of events processed. */
+ /* 
+ * epoll_wait 超时时间：
+ *  找最近超时的timer，找到用timer跟当前时间的差
+ *  没找到看AE_DONT_WAIT，如果有设置超时就是0,不然就是-1（一直等待）
+ */
 int aeProcessEvents(aeEventLoop *eventLoop, int flags)
 {
     int processed = 0, numevents;

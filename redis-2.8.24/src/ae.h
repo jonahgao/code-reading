@@ -53,9 +53,9 @@
 struct aeEventLoop;
 
 /* Types and data structures */
-typedef void aeFileProc(struct aeEventLoop *eventLoop, int fd, void *clientData, int mask);
-typedef int aeTimeProc(struct aeEventLoop *eventLoop, long long id, void *clientData);
-typedef void aeEventFinalizerProc(struct aeEventLoop *eventLoop, void *clientData);
+typedef void aeFileProc(struct aeEventLoop *eventLoop, int fd, void *clientData, int mask); // fd事件回调
+typedef int aeTimeProc(struct aeEventLoop *eventLoop, long long id, void *clientData);  // timer回调，根据返回值判断删除timer还是继续timer
+typedef void aeEventFinalizerProc(struct aeEventLoop *eventLoop, void *clientData); // timer 删除回调
 typedef void aeBeforeSleepProc(struct aeEventLoop *eventLoop);
 
 /* File event structure */
@@ -69,9 +69,9 @@ typedef struct aeFileEvent {
 /* Time event structure */
 typedef struct aeTimeEvent {
     long long id; /* time event identifier. */
-    long when_sec; /* seconds */    // deadline,绝对时间点
+    long when_sec; /* seconds */        // deadline,绝对时间点
     long when_ms; /* milliseconds */    // deadline, 绝对时间点
-    aeTimeProc *timeProc;   // 超时回调
+    aeTimeProc *timeProc;               // 超时回调
     aeEventFinalizerProc *finalizerProc;    // 删除时的回调
     void *clientData;
     struct aeTimeEvent *next;
@@ -100,7 +100,7 @@ typedef struct aeEventLoop {
     aeTimeEvent *timeEventHead;  // 定时器单链表
     int stop;   // 停止标记，aeStop时置为1                                                
     void *apidata; /* This is used for polling API specific data */  // 平台相关的eventloop实现，epoll对应aeApiState结构
-    aeBeforeSleepProc *beforesleep;
+    aeBeforeSleepProc *beforesleep;    // 每次loop前调用
 } aeEventLoop;
 
 /* Prototypes */
