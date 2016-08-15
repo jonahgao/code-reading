@@ -736,8 +736,8 @@ int rdbSave(char *filename) {
     }
 
     /* Make sure data will not remain on the OS's output buffers */
-    if (fflush(fp) == EOF) goto werr;
-    if (fsync(fileno(fp)) == -1) goto werr;
+    if (fflush(fp) == EOF) goto werr;           // fflush：把FILE中应用层buffer同步到os
+    if (fsync(fileno(fp)) == -1) goto werr;     // fsync：把os的cache同步到磁盘
     if (fclose(fp) == EOF) goto werr;
 
     /* Use RENAME to make sure the DB file is changed atomically only

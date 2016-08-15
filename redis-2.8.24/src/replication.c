@@ -407,6 +407,13 @@ int replicationSetupSlaveForFullResync(redisClient *slave, long long offset) {
  *
  * On success return REDIS_OK, otherwise REDIS_ERR is returned and we proceed
  * with the usual full resync. */
+ /* 比较runid跟本服务端的id是否一致，offset是否在backlog的范围内
+  * psync 成功：client->flags置为slave，若再次sync命令就会直接忽略
+  *            添加该客户端到服务端的slaves列表中
+  *            回应+CONTINUE，发送增量复制（使用当前连接）
+  *            更新状态良好的slaves数量 @server.repl_good_slaves_count
+  *       失败：返回err，表示需要全量复制
+  */
 int masterTryPartialResynchronization(redisClient *c) {
     long long psync_offset, psync_len;
     char *master_runid = c->argv[1]->ptr;

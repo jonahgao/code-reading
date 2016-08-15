@@ -756,11 +756,16 @@ struct redisServer {
     int slaveseldb;                 /* Last SELECTed DB in replication output */
     long long master_repl_offset;   /* Global replication offset */
     int repl_ping_slave_period;     /* Master pings the slave every N seconds */
+    /* backlog结构：
+     * 服务端backlog offset范围: [repl_backlog_off, repl_backlog_off + repl_backlog_histlen]，在此范围之外引发全量复制
+     * repl_backlog[repl_backlog_idx]为backlog最新的一字节
+     * backlog在循环buffer中的存储位置为repl_backlog[start, repl_backlog_idx], start为repl_backlog_idx往前repl_backlog_histlen字节
+     */
     char *repl_backlog;             /* Replication backlog for partial syncs */
-    long long repl_backlog_size;    /* Backlog circular buffer size */
-    long long repl_backlog_histlen; /* Backlog actual data length */
-    long long repl_backlog_idx;     /* Backlog circular buffer current offset */
-    long long repl_backlog_off;     /* Replication offset of first byte in the
+    long long repl_backlog_size;    /* Backlog circular buffer size */                  // 循环buffer的容量
+    long long repl_backlog_histlen; /* Backlog actual data length */                    // 实际数据backlog data的长度
+    long long repl_backlog_idx;     /* Backlog circular buffer current offset */        // 循环buffer当前的偏移，
+    long long repl_backlog_off;     /* Replication offset of first byte in the          // backlog data的最小offset，
                                        backlog buffer. */
     time_t repl_backlog_time_limit; /* Time without slaves after the backlog
                                        gets released. */
