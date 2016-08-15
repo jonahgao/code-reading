@@ -758,6 +758,8 @@ void freeClientsInAsyncFreeQueue(void) {
     }
 }
 
+// 客户端fd可写时的回调函数
+// 先写c->buf，再写c->reply这个list
 void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask) {
     redisClient *c = privdata;
     int nwritten = 0, totwritten = 0, objlen;
@@ -809,6 +811,8 @@ void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask) {
          *
          * However if we are over the maxmemory limit we ignore that and
          * just deliver as much data as it is possible to deliver. */
+        // 写停止条件之一：该fd本次写入总量大于 REDIS_MAX_WRITE_PER_EVENT 并且服务端内存占用小于maxmemory（有maxmemory的限制时）
+        // 换句话说如果内存占用非常大了，就赶紧写，释放点内存，不用管REDIS_MAX_WRITE_PER_EVENT的约束
         server.stat_net_output_bytes += totwritten;
         if (totwritten > REDIS_MAX_WRITE_PER_EVENT &&
             (server.maxmemory == 0 ||
@@ -829,13 +833,16 @@ void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask) {
          * as an interaction, since we always send REPLCONF ACK commands
          * that take some time to just fill the socket output buffer.
          * We just rely on data / pings received for timeout detection. */
+        // 更新非master client的lastinteraction
+        // master类型的超时监测依靠data和ping的接收
         if (!(c->flags & REDIS_MASTER)) c->lastinteraction = server.unixtime;
     }
-    if (c->bufpos == 0 && listLength(c->reply) == 0) {
+    if (c->bufpos == 0 && listLength(c->reply) == 0) {  // buf空了，reply list也空了，就从evnetpoll中删除该fd的可写事件监测
         c->sentlen = 0;
         aeDeleteFileEvent(server.el,c->fd,AE_WRITABLE);
 
         /* Close connection after entire reply has been sent. */
+        // 如果有REDIS_CLOSE_AFTER_REPLY标记，现在数据写完了，可以关闭客户端了
         if (c->flags & REDIS_CLOSE_AFTER_REPLY) freeClient(c);
     }
 }
