@@ -165,6 +165,7 @@ static void _dictReset(dictht *ht)
 }
 
 /* Create a new hash table */
+// 此时并不会创建dictht->table，即容量为0
 dict *dictCreate(dictType *type,
         void *privDataPtr)
 {
@@ -204,7 +205,7 @@ int dictResize(dict *d)
 int dictExpand(dict *d, unsigned long size)
 {
     dictht n; /* the new hash table */
-    unsigned long realsize = _dictNextPower(size);
+    unsigned long realsize = _dictNextPower(size);  // 实际大小为大于size的2的n次冥
 
     /* the size is invalid if it is smaller than the number of
      * elements already inside the hash table */

@@ -52,32 +52,32 @@ typedef struct dictEntry {
         int64_t s64;
         double d;
     } v;
-    struct dictEntry *next;
+    struct dictEntry *next;     // 链表下一个结点，链式排解冲突
 } dictEntry;
 
 typedef struct dictType {
-    unsigned int (*hashFunction)(const void *key);
-    void *(*keyDup)(void *privdata, const void *key);
-    void *(*valDup)(void *privdata, const void *obj);
-    int (*keyCompare)(void *privdata, const void *key1, const void *key2);
-    void (*keyDestructor)(void *privdata, void *key);
-    void (*valDestructor)(void *privdata, void *obj);
+    unsigned int (*hashFunction)(const void *key);                              // 计算key的hash函数
+    void *(*keyDup)(void *privdata, const void *key);                           // key的拷贝方法
+    void *(*valDup)(void *privdata, const void *obj);                           // value的拷贝方法，用于set时定制value如何拷贝
+    int (*keyCompare)(void *privdata, const void *key1, const void *key2);      // key的比较函数
+    void (*keyDestructor)(void *privdata, void *key);                           // key释放
+    void (*valDestructor)(void *privdata, void *obj);                           // value释放
 } dictType;
 
 /* This is our hash table structure. Every dictionary has two of this as we
  * implement incremental rehashing, for the old to the new table. */
 typedef struct dictht {
-    dictEntry **table;
-    unsigned long size;
-    unsigned long sizemask;
-    unsigned long used;
+    dictEntry **table;          // dictEntry *的数组，每个元素为冲突链，index为hash&sizemask
+    unsigned long size;         // 哈希表大小
+    unsigned long sizemask;     // size-1,用于计算keyhash&sizemask
+    unsigned long used;         // 哈希表内键值对的个数
 } dictht;
 
 typedef struct dict {
-    dictType *type;
-    void *privdata;
-    dictht ht[2];
-    long rehashidx; /* rehashing not in progress if rehashidx == -1 */
+    dictType *type;             // 一组函数指针，包括如何计算key的hash值，如何比较key等
+    void *privdata;             // type的函数参数
+    dictht ht[2];               // 两个哈希表，rehash时使用ht[1]
+    long rehashidx; /* rehashing not in progress if rehashidx == -1 */ //rehash的进度
     int iterators; /* number of iterators currently running */
 } dict;
 
