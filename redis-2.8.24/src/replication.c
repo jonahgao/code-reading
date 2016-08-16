@@ -509,7 +509,9 @@ need_full_resync:
  * Returns REDIS_OK on success or REDIS_ERR otherwise. */
 int startBgsaveForReplication(int mincapa) {
     int retval;
-    int socket_target = server.repl_diskless_sync && (mincapa & SLAVE_CAPA_EOF);
+    // diskless的条件：打开了repl-diskless-sync选项，并且客户端的capa里支持SLAVE_CAPA_EOF
+    // 不满足其中的一个就使用磁盘文件的形式生成rdb
+    int socket_target = server.repl_diskless_sync && (mincapa & SLAVE_CAPA_EOF); 
     listIter li;
     listNode *ln;
 
@@ -568,6 +570,7 @@ void syncCommand(redisClient *c) {
 
     /* Refuse SYNC requests if we are a slave but the link with our master
      * is not ok... */
+    // 如果服务端是一个slave（masterhost不为空），则检查是否连上了master，没有则返回错误
     if (server.masterhost && server.repl_state != REDIS_REPL_CONNECTED) {
         addReplyError(c,"Can't SYNC while not connected with my master");
         return;
@@ -577,6 +580,8 @@ void syncCommand(redisClient *c) {
      * the client about already issued commands. We need a fresh reply
      * buffer registering the differences between the BGSAVE and the current
      * dataset, so that we can copy to other slaves if needed. */
+    // 这里保证客户端c的buffer是空的，也没有待发送的reply，
+    // 这样我们可以安全地把客户端c的buffer里的rdb数据直接拷贝给另外一个slave（重用已生成的rdb）
     if (listLength(c->reply) != 0 || c->bufpos != 0) {
         addReplyError(c,"SYNC and PSYNC are invalid with pending output");
         return;
@@ -605,12 +610,14 @@ void syncCommand(redisClient *c) {
              * runid is not "?", as this is used by slaves to force a full
              * resync on purpose when they are not albe to partially
              * resync. */
+            // runid填问号表示强制全量同步
             if (master_runid[0] != '?') server.stat_sync_partial_err++;
         }
     } else {
         /* If a slave uses SYNC, we are dealing with an old implementation
          * of the replication protocol (like redis-cli --slave). Flag the client
          * so that we don't expect to receive REPLCONF ACK feedbacks. */
+        // 加标记，表示是客户端是旧版同步协议，不期望能收到它的REPLCONF ACK反馈
         c->flags |= REDIS_PRE_PSYNC;
     }
 
@@ -623,12 +630,12 @@ void syncCommand(redisClient *c) {
     if (server.repl_disable_tcp_nodelay)
         anetDisableTcpNoDelay(NULL, c->fd); /* Non critical if it fails. */
     c->repldbfd = -1;
-    c->flags |= REDIS_SLAVE;
-    listAddNodeTail(server.slaves,c);
+    c->flags |= REDIS_SLAVE;        
+    listAddNodeTail(server.slaves,c);   // 全量备份时也加REDIS_SLAVE标记，并把该客户端加到服务端的slaves list中
 
     /* CASE 1: BGSAVE is in progress, with disk target. */
     if (server.rdb_child_pid != -1 &&
-        server.rdb_child_type == REDIS_RDB_CHILD_TYPE_DISK)
+        server.rdb_child_type == REDIS_RDB_CHILD_TYPE_DISK) // 正在生成RDB中，且类型是写入磁盘文件
     {
         /* Ok a background save is in progress. Let's check if it is a good
          * one for replication, i.e. if there is another slave that is
@@ -637,6 +644,8 @@ void syncCommand(redisClient *c) {
         listNode *ln;
         listIter li;
 
+        // 查找触发当前BGSAVE的slave
+        // 其状态如果为REDIS_REPL_WAIT_BGSAVE_END，表示rdb已经在它的buffer中了，可以直接重用拷贝
         listRewind(server.slaves,&li);
         while((ln = listNext(&li))) {
             slave = ln->value;
@@ -644,6 +653,7 @@ void syncCommand(redisClient *c) {
         }
         /* To attach this slave, we check that it has at least all the
          * capabilities of the slave that triggered the current BGSAVE. */
+        // 检查当前客户端c是否具备该slave的能力（要兼容这个slave，以免这个slave生成的rdb格式当前客户端c不兼容）
         if (ln && ((c->slave_capa & slave->slave_capa) == slave->slave_capa)) {
             /* Perfect, the server is already registering differences for
              * another slave. Set the right state, and copy the buffer. */

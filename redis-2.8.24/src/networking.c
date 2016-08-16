@@ -275,7 +275,7 @@ void _addReplyStringToList(redisClient *c, char *s, size_t len) {
  * Higher level functions to queue data on the client output buffer.
  * The following functions are the ones that commands implementations will call.
  * -------------------------------------------------------------------------- */
-
+// 先尝试添加到buffer，如果buffer里有数据就添加到reply list中
 void addReply(redisClient *c, robj *obj) {
     if (prepareClientToWrite(c) != REDIS_OK) return;
 
