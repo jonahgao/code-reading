@@ -644,8 +644,7 @@ void syncCommand(redisClient *c) {
         listNode *ln;
         listIter li;
 
-        // 查找触发当前BGSAVE的slave
-        // 其状态如果为REDIS_REPL_WAIT_BGSAVE_END，表示rdb已经在它的buffer中了，可以直接重用拷贝
+        // 查找其状态为REDIS_REPL_WAIT_BGSAVE_END的slave
         listRewind(server.slaves,&li);
         while((ln = listNext(&li))) {
             slave = ln->value;
@@ -653,11 +652,11 @@ void syncCommand(redisClient *c) {
         }
         /* To attach this slave, we check that it has at least all the
          * capabilities of the slave that triggered the current BGSAVE. */
-        // 检查当前客户端c是否具备该slave的能力（要兼容这个slave，以免这个slave生成的rdb格式当前客户端c不兼容）
+        // 检查当前客户端c是否具备该slave的能力（要兼容这个slave，以免这个slave的数据当前客户端c不兼容）
         if (ln && ((c->slave_capa & slave->slave_capa) == slave->slave_capa)) {
             /* Perfect, the server is already registering differences for
              * another slave. Set the right state, and copy the buffer. */
-            copyClientOutputBuffer(c,slave);
+            copyClientOutputBuffer(c,slave);    //TODO: 这里拷贝的数据是什么？？应该不是rdb
             replicationSetupSlaveForFullResync(c,slave->psync_initial_offset);
             redisLog(REDIS_NOTICE,"Waiting for end of BGSAVE for SYNC");
         } else {
@@ -833,11 +832,11 @@ void sendBulkToSlave(aeEventLoop *el, int fd, void *privdata, int mask) {
     }
     slave->repldboff += nwritten;
     server.stat_net_output_bytes += nwritten;
-    if (slave->repldboff == slave->repldbsize) {
+    if (slave->repldboff == slave->repldbsize) {    // 发完了
         close(slave->repldbfd);
         slave->repldbfd = -1;
         aeDeleteFileEvent(server.el,slave->fd,AE_WRITABLE);
-        putSlaveOnline(slave);
+        putSlaveOnline(slave);          // 标记slaves为REDIS_REPL_ONLINE装态，设置正常的fd可写回调等
     }
 }
 
@@ -869,7 +868,7 @@ void updateSlavesWaitingBgsave(int bgsaveerr, int type) {
             startbgsave = 1;
             mincapa = (mincapa == -1) ? slave->slave_capa :
                                         (mincapa & slave->slave_capa);
-        } else if (slave->replstate == REDIS_REPL_WAIT_BGSAVE_END) {
+        } else if (slave->replstate == REDIS_REPL_WAIT_BGSAVE_END) {   
             struct redis_stat buf;
 
             /* If this was an RDB on disk save, we have to prepare to send
@@ -890,13 +889,13 @@ void updateSlavesWaitingBgsave(int bgsaveerr, int type) {
                 slave->repl_put_online_on_ack = 1;
                 slave->repl_ack_time = server.unixtime;
             } else {
-                if (bgsaveerr != REDIS_OK) {
+                if (bgsaveerr != REDIS_OK) {        // bgsave不成功就关掉处于REDIS_REPL_WAIT_BGSAVE_END状态的slave
                     freeClient(slave);
                     redisLog(REDIS_WARNING,"SYNC failed. BGSAVE child returned an error");
                     continue;
                 }
                 if ((slave->repldbfd = open(server.rdb_filename,O_RDONLY)) == -1 ||
-                    redis_fstat(slave->repldbfd,&buf) == -1) {
+                    redis_fstat(slave->repldbfd,&buf) == -1) {  // 打开rdb文件
                     freeClient(slave);
                     redisLog(REDIS_WARNING,"SYNC failed. Can't open/stat DB after BGSAVE: %s", strerror(errno));
                     continue;
@@ -908,6 +907,7 @@ void updateSlavesWaitingBgsave(int bgsaveerr, int type) {
                     (unsigned long long) slave->repldbsize);
 
                 aeDeleteFileEvent(server.el,slave->fd,AE_WRITABLE);
+                // 发送rdb文件到slaves
                 if (aeCreateFileEvent(server.el, slave->fd, AE_WRITABLE, sendBulkToSlave, slave) == AE_ERR) {
                     freeClient(slave);
                     continue;
@@ -915,6 +915,7 @@ void updateSlavesWaitingBgsave(int bgsaveerr, int type) {
             }
         }
     }
+    // 如果有slaves处于REDIS_REPL_WAIT_BGSAVE_START状态，开始下一次 BGSAVE
     if (startbgsave) startBgsaveForReplication(mincapa);
 }
 

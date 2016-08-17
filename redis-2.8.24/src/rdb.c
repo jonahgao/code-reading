@@ -1305,7 +1305,7 @@ void backgroundSaveDoneHandlerSocket(int exitcode, int bysignal) {
         int readlen = sizeof(uint64_t);
 
         if (read(server.rdb_pipe_read_result_from_child, ok_slaves, readlen) ==
-                 readlen)
+                 readlen)   // 读len
         {
             readlen = ok_slaves[0]*sizeof(uint64_t)*2;
 
@@ -1314,7 +1314,7 @@ void backgroundSaveDoneHandlerSocket(int exitcode, int bysignal) {
             ok_slaves = zrealloc(ok_slaves,sizeof(uint64_t)+readlen);
             if (readlen &&
                 read(server.rdb_pipe_read_result_from_child, ok_slaves+1,
-                     readlen) != readlen)
+                     readlen) != readlen)   // 读 clientid, error序列
             {
                 ok_slaves[0] = 0;
             }
@@ -1346,7 +1346,7 @@ void backgroundSaveDoneHandlerSocket(int exitcode, int bysignal) {
                     break; /* Found in slaves list. */
                 }
             }
-            if (j == ok_slaves[0] || errorcode != 0) {
+            if (j == ok_slaves[0] || errorcode != 0) {  // j == ok_slaves[0]表示没找到，也看作是错误，关闭slave
                 redisLog(REDIS_WARNING,
                 "Closing slave %s: child->slave RDB transfer failed: %s",
                     replicationGetSlaveName(slave),
@@ -1369,6 +1369,7 @@ void backgroundSaveDoneHandlerSocket(int exitcode, int bysignal) {
 }
 
 /* When a background RDB saving/transfer terminates, call the right handler. */
+// 表示RDB生成任务完成，socket（diskless）和disk两种类型分别处理
 void backgroundSaveDoneHandler(int exitcode, int bysignal) {
     switch(server.rdb_child_type) {
     case REDIS_RDB_CHILD_TYPE_DISK:
@@ -1385,6 +1386,8 @@ void backgroundSaveDoneHandler(int exitcode, int bysignal) {
 
 /* Spawn an RDB child that writes the RDB to the sockets of the slaves
  * that are currently in REDIS_REPL_WAIT_BGSAVE_START state. */
+// 开启一个子进程，把rdb复制到处于REDIS_REPL_WAIT_BGSAVE_START转态的slaves
+// 并且通过管道返回每个slave的复制结果，在子进程结束后父进程的backgroundSaveDoneHandlerSocket函数中处理这些结果
 int rdbSaveToSlavesSockets(void) {
     int *fds;
     uint64_t *clientids;
@@ -1475,7 +1478,7 @@ int rdbSaveToSlavesSockets(void) {
             uint64_t *ids = len+1;
             int j, msglen;
 
-            *len = numfds;
+            *len = numfds;      // 写入fd个数，就是复制多少slaves
             for (j = 0; j < numfds; j++) {
                 *ids++ = clientids[j];
                 *ids++ = slave_sockets.io.fdset.state[j];
@@ -1508,6 +1511,7 @@ int rdbSaveToSlavesSockets(void) {
             /* Undo the state change. The caller will perform cleanup on
              * all the slaves in BGSAVE_START state, but an early call to
              * replicationSetupSlaveForFullResync() turned it into BGSAVE_END */
+            // fork子进程失败，恢复slaves的状态为REDIS_REPL_WAIT_BGSAVE_START
             listRewind(server.slaves,&li);
             while((ln = listNext(&li))) {
                 redisClient *slave = ln->value;
