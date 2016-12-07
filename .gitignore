@@ -1,1 +1,4 @@
 /redis-2.8.24/src/.vscode
+
+.settings/org.eclipse.core.resources.prefs
+*.prefs
