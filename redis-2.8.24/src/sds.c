@@ -51,6 +51,7 @@
 sds sdsnewlen(const void *init, size_t initlen) {
     struct sdshdr *sh;
 
+    // 如果有初始值，则分配时不清零内存，反正后面也要拷贝过去覆盖
     if (init) {
         sh = zmalloc(sizeof(struct sdshdr)+initlen+1);	// 多一字节存 '\0'
     } else {
@@ -128,7 +129,7 @@ void sdsclear(sds s) {
  *
  * Note: this does not change the *length* of the sds string as returned
  * by sdslen(), but only the free buffer space we have. */
-// 增大free空间长度，结果: free >= addlen
+// 增大free空间长度，结果: free >= addlen，按2次冥递增预留空间
 sds sdsMakeRoomFor(sds s, size_t addlen) {
     struct sdshdr *sh, *newsh;
     size_t free = sdsavail(s);
@@ -221,6 +222,7 @@ void sdsIncrLen(sds s, int incr) {
  * if the specified length is smaller than the current length, no operation
  * is performed. */
 //
+// 增大sh->len到len，末尾补0；如果len < sh->len，不作操作
 sds sdsgrowzero(sds s, size_t len) {
     struct sdshdr *sh = (void*)(s-(sizeof(struct sdshdr)));
     size_t totlen, curlen = sh->len;
@@ -243,6 +245,7 @@ sds sdsgrowzero(sds s, size_t len) {
  *
  * After the call, the passed sds string is no longer valid and all the
  * references must be substituted with the new pointer returned by the call. */
+// append字符串到当前字符串的后面，目标空间不够会扩容
 sds sdscatlen(sds s, const void *t, size_t len) {
     struct sdshdr *sh;
     size_t curlen = sdslen(s);
@@ -569,6 +572,7 @@ sds sdscatfmt(sds s, char const *fmt, ...) {
  *
  * Output will be just "Hello World".
  */
+// 从s左侧和右侧剔除cset中出现的字符，遇到非cset中字符停止
 sds sdstrim(sds s, const char *cset) {
     struct sdshdr *sh = (void*) (s-(sizeof(struct sdshdr)));
     char *start, *end, *sp, *ep;

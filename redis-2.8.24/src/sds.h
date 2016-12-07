@@ -36,11 +36,11 @@
 #include <sys/types.h>
 #include <stdarg.h>
 
-typedef char *sds;
+typedef char *sds;   // sds指向sdshdr的buf字段，通过指针运算可以获取到结构体其他字段
 
 struct sdshdr {
-    unsigned int len;
-    unsigned int free;
+    unsigned int len;   // 所保存字符串的长度，不包含'\0'
+    unsigned int free;  // free的长度（buf大小 >= 保存的字符串大小)
     char buf[];
 };
 
