@@ -67,8 +67,8 @@ typedef struct dictType {
 /* This is our hash table structure. Every dictionary has two of this as we
  * implement incremental rehashing, for the old to the new table. */
 typedef struct dictht {
-    dictEntry **table;          // dictEntry *的数组，每个元素为冲突链，index为hash&sizemask
-    unsigned long size;         // 哈希表大小
+    dictEntry **table;          // bucket数组，dictEntry *的数组，每个元素为冲突链，index为hash&sizemask
+    unsigned long size;         // 哈希表大小（bucket数组大小）
     unsigned long sizemask;     // size-1,用于计算keyhash&sizemask
     unsigned long used;         // 哈希表内键值对的个数
 } dictht;
@@ -77,7 +77,7 @@ typedef struct dict {
     dictType *type;             // 一组函数指针，包括如何计算key的hash值，如何比较key等
     void *privdata;             // type的函数参数
     dictht ht[2];               // 两个哈希表，rehash时使用ht[1]
-    long rehashidx; /* rehashing not in progress if rehashidx == -1 */ //rehash的进度
+    long rehashidx; /* rehashing not in progress if rehashidx == -1 */ //rehash的进度，值为-1时表示没在rehash
     int iterators; /* number of iterators currently running */
 } dict;
 
