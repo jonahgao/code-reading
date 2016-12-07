@@ -77,6 +77,7 @@ void listRelease(list *list)
  * On error, NULL is returned and no operation is performed (i.e. the
  * list remains unaltered).
  * On success the 'list' pointer you pass to the function is returned. */
+// 添加到表头
 list *listAddNodeHead(list *list, void *value)
 {
     listNode *node;
@@ -103,6 +104,7 @@ list *listAddNodeHead(list *list, void *value)
  * On error, NULL is returned and no operation is performed (i.e. the
  * list remains unaltered).
  * On success the 'list' pointer you pass to the function is returned. */
+// 添加新结点到表尾
 list *listAddNodeTail(list *list, void *value)
 {
     listNode *node;
@@ -123,6 +125,7 @@ list *listAddNodeTail(list *list, void *value)
     return list;
 }
 
+// 添加新结点到给定结点之前或之后
 list *listInsertNode(list *list, listNode *old_node, void *value, int after) {
     listNode *node;
 
@@ -156,6 +159,7 @@ list *listInsertNode(list *list, listNode *old_node, void *value, int after) {
  * It's up to the caller to free the private value of the node.
  *
  * This function can't fail. */
+// 删除结点，释放value
 void listDelNode(list *list, listNode *node)
 {
     if (node->prev)
@@ -310,6 +314,7 @@ listNode *listSearchKey(list *list, void *key)
  * and so on. Negative integers are used in order to count
  * from the tail, -1 is the last element, -2 the penultimate
  * and so on. If the index is out of range NULL is returned. */
+// 返回第n个结点，0->head， -1->tail
 listNode *listIndex(list *list, long index) {
     listNode *n;
 
