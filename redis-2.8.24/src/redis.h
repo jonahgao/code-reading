@@ -418,11 +418,11 @@ typedef long long mstime_t; /* millisecond time type. */
 #define REDIS_LRU_CLOCK_MAX ((1<<REDIS_LRU_BITS)-1) /* Max value of obj->lru */
 #define REDIS_LRU_CLOCK_RESOLUTION 1 /* LRU clock resolution in seconds */
 typedef struct redisObject {
-    unsigned type:4;
-    unsigned encoding:4;
+    unsigned type:4;      // 类型  REDIS_STRING、REDIS_LIST、REDIS_HASH、REDIS_SET等
+    unsigned encoding:4;  // 对象的编码，REDIS_ENCODING_ 开头的变量，同一type可以有不同的底层实现
     unsigned lru:REDIS_LRU_BITS; /* lru time (relative to server.lruclock) */
     int refcount;
-    void *ptr;
+    void *ptr; // 底层实际数据
 } robj;
 
 /* Macro used to initialize a Redis object allocated on the stack.

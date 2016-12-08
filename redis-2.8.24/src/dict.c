@@ -563,6 +563,7 @@ dictIterator *dictGetIterator(dict *d)
     return iter;
 }
 
+// safe: dict有iterator存在时，不更新rehash的进度
 dictIterator *dictGetSafeIterator(dict *d) {
     dictIterator *i = dictGetIterator(d);
 
