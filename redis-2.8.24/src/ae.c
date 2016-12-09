@@ -159,7 +159,7 @@ int aeCreateFileEvent(aeEventLoop *eventLoop, int fd, int mask,
 }
 
 /*
- * 不一定会删除这个fd，比如原来监测该fd的可读可写，现在只监测可读，这时就是修改
+ * 不一定会删除这个fd，比如原来监测该fd的可读可写，现在只监听可读，这时就是修改
  * mask减为 AE_NONE 才表示删除，同时更新 maxfd
  */
 void aeDeleteFileEvent(aeEventLoop *eventLoop, int fd, int mask)
@@ -180,6 +180,7 @@ void aeDeleteFileEvent(aeEventLoop *eventLoop, int fd, int mask)
     }
 }
 
+// 返回fd有哪些事件在被监听
 int aeGetFileEvents(aeEventLoop *eventLoop, int fd) {
     if (fd >= eventLoop->setsize) return 0;
     aeFileEvent *fe = &eventLoop->events[fd];
@@ -427,7 +428,7 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
 	    /* note the fe->mask & mask & ... code: maybe an already processed
              * event removed an element that fired and we still didn't
              * processed, so we check if the event is still valid. */
-            if (fe->mask & mask & AE_READABLE) {
+            if (fe->mask & mask & AE_READABLE) {               // 同一fd先处理读事件，再处理写事件
                 rfired = 1;
                 fe->rfileProc(eventLoop,fd,fe->clientData,mask);
             }

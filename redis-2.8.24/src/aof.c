@@ -575,7 +575,7 @@ int loadAppendOnlyFile(char *filename) {
      * to the same file we're about to read. */
     server.aof_state = REDIS_AOF_OFF;
 
-    fakeClient = createFakeClient();
+    fakeClient = createFakeClient(); // 创建伪客户端执行aof中的命令
     startLoading(fp);
 
     while(1) {
@@ -959,6 +959,7 @@ int rewriteHashObject(rio *r, robj *key, robj *o) {
  * log Redis uses variadic commands when possible, such as RPUSH, SADD
  * and ZADD. However at max REDIS_AOF_REWRITE_ITEMS_PER_CMD items per time
  * are inserted using a single command. */
+// 重写：读取当前数据库，转换成一个个key的添加操作
 int rewriteAppendOnlyFile(char *filename) {
     dictIterator *di = NULL;
     dictEntry *de;
@@ -1192,7 +1193,7 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
             goto cleanup;
         }
 
-        if (aofRewriteBufferWrite(newfd) == -1) {
+        if (aofRewriteBufferWrite(newfd) == -1) {  // rewrite子进程结束后，rewrite在子进程运行期间新修改的内容
             redisLog(REDIS_WARNING,
                 "Error trying to flush the parent diff to the rewritten AOF: %s", strerror(errno));
             close(newfd);

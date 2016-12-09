@@ -84,7 +84,7 @@ typedef long long mstime_t; /* millisecond time type. */
 #define REDIS_MAX_LOGMSG_LEN    1024 /* Default maximum length of syslog messages */
 #define REDIS_AOF_REWRITE_PERC  100
 #define REDIS_AOF_REWRITE_MIN_SIZE (64*1024*1024)
-#define REDIS_AOF_REWRITE_ITEMS_PER_CMD 64
+#define REDIS_AOF_REWRITE_ITEMS_PER_CMD 64 // key中value太多（list等）将会拆分为多个rewrite命令
 #define REDIS_SLOWLOG_LOG_SLOWER_THAN 10000
 #define REDIS_SLOWLOG_MAX_LEN 128
 #define REDIS_MAX_CLIENTS 10000
