@@ -308,7 +308,7 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
 
     te = eventLoop->timeEventHead;
     maxId = eventLoop->timeEventNextId-1;
-    /* 有事件被处理，从链表头重新开始，根据回调的返回值判断是否该定时器要继续添加进去 */ 
+    /* 有事件被处理，从链表头重新开始，根据回调的返回值判断是否该定时器要继续添加进去 */
     while(te) {
         long now_sec, now_ms;
         long long id;
@@ -369,6 +369,7 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
  * epoll_wait 超时时间：
  *  找最近超时的timer，找到用timer跟当前时间的差
  *  没找到看AE_DONT_WAIT，如果有设置超时就是0,不然就是-1（一直等待）
+ *  AE_DONT_WAIT: 不等待，如果有文件事件就马上处理。不处理超时时间
  */
 int aeProcessEvents(aeEventLoop *eventLoop, int flags)
 {
@@ -414,6 +415,7 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
                 tvp = &tv;
             } else {
                 /* Otherwise we can block */
+            	// 没设置AE_DONT_WAIT也没有超时时间，则死等直到有文件事件发生
                 tvp = NULL; /* wait forever */
             }
         }

@@ -60,7 +60,7 @@ typedef void aeBeforeSleepProc(struct aeEventLoop *eventLoop);
 
 /* File event structure */
 typedef struct aeFileEvent {
-    int mask; /* one of AE_(READABLE|WRITABLE) */   // 检测该fd的什么事件（可读可写）。创建时初始值 AE_NONE，表示该fd没有注册，
+    int mask; /* one of AE_(READABLE|WRITABLE) */   // 监测该fd的什么事件（可读可写）。创建时初始值 AE_NONE，表示该fd没有注册，
     aeFileProc *rfileProc;      // 可读时的回调
     aeFileProc *wfileProc;      // 可写时的回调
     void *clientData;           // 回调参数
@@ -68,7 +68,7 @@ typedef struct aeFileEvent {
 
 /* Time event structure */
 typedef struct aeTimeEvent {
-    long long id; /* time event identifier. */
+    long long id; /* time event identifier. */  // unique id，用于管理，比如按id删除定时器
     long when_sec; /* seconds */        // deadline,绝对时间点
     long when_ms; /* milliseconds */    // deadline, 绝对时间点
     aeTimeProc *timeProc;               // 超时回调
@@ -98,7 +98,7 @@ typedef struct aeEventLoop {
     aeFileEvent *events; /* Registered events */                // 长度为setsize的数组, 索引就是fd
     aeFiredEvent *fired; /* Fired events */                     // 最大长度为setsize的数组，保存待处理的新事件
     aeTimeEvent *timeEventHead;  // 定时器单链表
-    int stop;   // 停止标记，aeStop时置为1                                                
+    int stop;   // 停止标记，aeStop时置为1
     void *apidata; /* This is used for polling API specific data */  // 平台相关的eventloop实现，epoll对应aeApiState结构
     aeBeforeSleepProc *beforesleep;    // 每次loop前调用
 } aeEventLoop;

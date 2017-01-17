@@ -2,3 +2,5 @@
 
 .settings/org.eclipse.core.resources.prefs
 *.prefs
+redis-2.8.24/.cproject
+redis-2.8.24/.project
