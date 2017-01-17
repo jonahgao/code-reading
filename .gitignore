@@ -4,3 +4,4 @@
 *.prefs
 redis-2.8.24/.cproject
 redis-2.8.24/.project
+redis-2.8.24/.settings
