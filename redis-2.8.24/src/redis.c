@@ -106,7 +106,7 @@ struct redisServer server; /* server global state */
  *    with the same arguments, with the same key space, may have different
  *    results. For instance SPOP and RANDOMKEY are two random commands.
  * S: Sort command output array if called from script, so that the output
- *    is deterministic.
+ *    is deterministic. 在脚本中调用时对结果排序
  * l: Allow command while loading the database.
  * t: Allow command while a slave has stale data but is not allowed to
  *    server this data. Normally no command is accepted in this condition
@@ -1937,6 +1937,7 @@ void call(redisClient *c, int flags) {
 
     /* Sent the command to clients in MONITOR mode, only if the commands are
      * not generated from reading an AOF. */
+    // 广播给处于monitor模式的client
     if (listLength(server.monitors) &&
         !server.loading &&
         !(c->cmd->flags & (REDIS_CMD_SKIP_MONITOR|REDIS_CMD_ADMIN)))
@@ -1962,6 +1963,7 @@ void call(redisClient *c, int flags) {
     /* If the caller is Lua, we want to force the EVAL caller to propagate
      * the script if the command flag or client flag are forcing the
      * propagation. */
+    // 如果调用者是lua伪客户端，
     if (c->flags & REDIS_LUA_CLIENT && server.lua_caller) {
         if (c->flags & REDIS_FORCE_REPL)
             server.lua_caller->flags |= REDIS_FORCE_REPL;
@@ -1971,6 +1973,7 @@ void call(redisClient *c, int flags) {
 
     /* Log the command into the Slow log if needed, and populate the
      * per-command statistics that we show in INFO commandstats. */
+    // 采集调用延迟和slowlog
     if (flags & REDIS_CALL_SLOWLOG && c->cmd->proc != execCommand) {
         char *latency_event = (c->cmd->flags & REDIS_CMD_FAST) ?
                               "fast-command" : "command";
@@ -2001,6 +2004,7 @@ void call(redisClient *c, int flags) {
 
     /* Handle the alsoPropagate() API to handle commands that want to propagate
      * multiple separated commands. */
+    // 传播 also_propagate 里的命令
     if (server.also_propagate.numops) {
         int j;
         redisOp *rop;
@@ -2042,14 +2046,14 @@ int processCommand(redisClient *c) {
             (char*)c->argv[0]->ptr);
         return REDIS_OK;
     } else if ((c->cmd->arity > 0 && c->cmd->arity != c->argc) ||
-               (c->argc < -c->cmd->arity)) {
+               (c->argc < -c->cmd->arity)) { // 检查参数个数是否满足该命令的要求
         flagTransaction(c);
         addReplyErrorFormat(c,"wrong number of arguments for '%s' command",
             c->cmd->name);
         return REDIS_OK;
     }
 
-    /* Check if the user is authenticated */
+    /* Check if the user is authenticated 检查是否通过身份验证，如果有 */
     if (server.requirepass && !c->authenticated && c->cmd->proc != authCommand)
     {
         flagTransaction(c);
@@ -2062,14 +2066,17 @@ int processCommand(redisClient *c) {
      * First we try to free some memory if possible (if there are volatile
      * keys in the dataset). If there are not the only thing we can do
      * is returning an error. */
+    // 如果打开了maxmemory选项，检查并尝试回收内存
     if (server.maxmemory) {
         int retval = freeMemoryIfNeeded();
         /* freeMemoryIfNeeded may flush slave output buffers. This may result
          * into a slave, that may be the active client, to be freed. */
+        // freeMemoryIfNeeded 中有可能会flush slave的outbuffer，有可能导致其被关闭
         if (server.current_client == NULL) return REDIS_ERR;
 
         /* It was impossible to free enough memory, and the command the client
          * is trying to execute is denied during OOM conditions? Error. */
+        // 命令执行失败：释放内存失败 && 命令有m标记（可能增长内存）
         if ((c->cmd->flags & REDIS_CMD_DENYOOM) && retval == REDIS_ERR) {
             flagTransaction(c);
             addReply(c, shared.oomerr);
@@ -2079,6 +2086,11 @@ int processCommand(redisClient *c) {
 
     /* Don't accept write commands if there are problems persisting on disk
      * and if this is a master instance. */
+    // 检查rdb或者aof执行状态。
+    // 出错的条件: 需要满足1，2，3全部
+    // 1. (开启stop_writes_on_bgsave_err选项 && 有save设置 && 上次bgsave命令执行错误) || 上次写aof出错
+    // 2. masterhost == NULL (是master实例)
+    // 3. 命令有写标记或者是个ping命令
     if (((server.stop_writes_on_bgsave_err &&
           server.saveparamslen > 0 &&
           server.lastbgsave_status == REDIS_ERR) ||
@@ -2100,6 +2112,7 @@ int processCommand(redisClient *c) {
 
     /* Don't accept write commands if there are not enough good slaves and
      * user configured the min-slaves-to-write option. */
+    // 如果有开启min-slaves-to-write选项，对于写命令检查是否有足够多状态好的slaves
     if (server.masterhost == NULL &&
         server.repl_min_slaves_to_write &&
         server.repl_min_slaves_max_lag &&
@@ -2113,6 +2126,7 @@ int processCommand(redisClient *c) {
 
     /* Don't accept write commands if this is a read only slave. But
      * accept write commands if this is our master. */
+    // 如果配置了repl_slave_ro选项，则如果当前实例是个slave则拒绝写命令
     if (server.masterhost && server.repl_slave_ro &&
         !(c->flags & REDIS_MASTER) &&
         c->cmd->flags & REDIS_CMD_WRITE)
@@ -2122,6 +2136,7 @@ int processCommand(redisClient *c) {
     }
 
     /* Only allow SUBSCRIBE and UNSUBSCRIBE in the context of Pub/Sub */
+    // 订阅模式下只允许SUBSCRIBE相关的命令
     if (c->flags & REDIS_PUBSUB &&
         c->cmd->proc != pingCommand &&
         c->cmd->proc != subscribeCommand &&
@@ -2134,6 +2149,8 @@ int processCommand(redisClient *c) {
 
     /* Only allow INFO and SLAVEOF when slave-serve-stale-data is no and
      * we are a slave with a broken link with master. */
+    // 如果配置了 repl_serve_stale_data yes 选项，当前实例为slave并且没有连接上master
+    // 则拒绝不带REDIS_CMD_STALE标志的命令（目前只有INFO、SLAVEOF命令带）
     if (server.masterhost && server.repl_state != REDIS_REPL_CONNECTED &&
         server.repl_serve_stale_data == 0 &&
         !(c->cmd->flags & REDIS_CMD_STALE))
@@ -2145,12 +2162,14 @@ int processCommand(redisClient *c) {
 
     /* Loading DB? Return an error if the command has not the
      * REDIS_CMD_LOADING flag. */
+    // loading DB期间只接收 REDIS_CMD_LOADING 的命令
     if (server.loading && !(c->cmd->flags & REDIS_CMD_LOADING)) {
         addReply(c, shared.loadingerr);
         return REDIS_OK;
     }
 
     /* Lua script too slow? Only allow a limited number of commands. */
+    // 执行lua脚本超时：只允许执行auth，replconf, shutdown nosave ，script kill这四个命令
     if (server.lua_timedout &&
           c->cmd->proc != authCommand &&
           c->cmd->proc != replconfCommand &&
@@ -2167,6 +2186,7 @@ int processCommand(redisClient *c) {
     }
 
     /* Exec the command */
+    // 正在执行事物中，则只执行exec、discard、multi、watch命令，其他命令会缓存不执行
     if (c->flags & REDIS_MULTI &&
         c->cmd->proc != execCommand && c->cmd->proc != discardCommand &&
         c->cmd->proc != multiCommand && c->cmd->proc != watchCommand)
@@ -2175,7 +2195,7 @@ int processCommand(redisClient *c) {
         addReply(c,shared.queued);
     } else {
         call(c,REDIS_CALL_FULL);
-        if (listLength(server.ready_keys))
+        if (listLength(server.ready_keys))  // 通知阻塞在blpop、brpop的客户端，如果有需要
             handleClientsBlockedOnLists();
     }
     return REDIS_OK;
@@ -2916,6 +2936,7 @@ void monitorCommand(redisClient *c) {
  * should block the execution of commands that will result in more memory
  * used by the server.
  */
+// maxmemory选项开启的情况下，每次执行命令前，尝试回收内存
 int freeMemoryIfNeeded(void) {
     size_t mem_used, mem_tofree, mem_freed;
     int slaves = listLength(server.slaves);
@@ -2923,6 +2944,7 @@ int freeMemoryIfNeeded(void) {
 
     /* Remove the size of slaves output buffers and AOF buffer from the
      * count of used memory. */
+    // slave outbuffer中的内存占用和AOF buffer的内存占有不记作其内
     mem_used = zmalloc_used_memory();
     if (slaves) {
         listIter li;

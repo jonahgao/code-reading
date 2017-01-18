@@ -869,7 +869,7 @@ typedef int *redisGetKeysProc(struct redisCommand *cmd, robj **argv, int argc, i
 struct redisCommand {
     char *name;
     redisCommandProc *proc;
-    int arity;
+    int arity; // 该命令对参数个数argc的要求。大于0表示需要满足arity==argc；小于0表示需要满足 argc >= arity
     char *sflags; /* Flags as string representation, one char per flag. */
     int flags;    /* The actual flags, obtained from the 'sflags' field. */
     /* Use a function to determine keys arguments in a command line. */
@@ -878,7 +878,7 @@ struct redisCommand {
     int firstkey; /* The first argument that's a key (0 = no keys) */
     int lastkey;  /* The last argument that's a key */
     int keystep;  /* The step between first and last key */
-    long long microseconds, calls;
+    long long microseconds, calls; // 这类命令执行的总时长和调用次数
 };
 
 struct redisFunctionSym {
