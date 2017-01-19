@@ -60,8 +60,8 @@ redisClient *createClient(int fd) {
      * contexts (for instance a Lua script) we need a non connected client. */
     if (fd != -1) {
         anetNonBlock(NULL,fd);
-        anetEnableTcpNoDelay(NULL,fd);
-        if (server.tcpkeepalive)
+        anetEnableTcpNoDelay(NULL,fd); // 设置tcp NoDelay选项
+        if (server.tcpkeepalive)  // 设置keepalive socket选项
             anetKeepAlive(NULL,fd,server.tcpkeepalive);
         if (aeCreateFileEvent(server.el,fd,AE_READABLE,
             readQueryFromClient, c) == AE_ERR) // 添加监测新客户端的可读事件
@@ -110,7 +110,7 @@ redisClient *createClient(int fd) {
     c->peerid = NULL;
     listSetFreeMethod(c->pubsub_patterns,decrRefCountVoid);
     listSetMatchMethod(c->pubsub_patterns,listMatchObjects);
-    if (fd != -1) listAddNodeTail(server.clients,c);
+    if (fd != -1) listAddNodeTail(server.clients,c);           // 添加到server.clients链表中
     initClientMultiState(c);
     return c;
 }
@@ -129,8 +129,9 @@ redisClient *createClient(int fd) {
  * Typically gets called every time a reply is built, before adding more
  * data to the clients output buffers. If the function returns REDIS_ERR no
  * data should be appended to the output buffers. */
+// 添加写事件
 int prepareClientToWrite(redisClient *c) {
-    if (c->flags & REDIS_LUA_CLIENT) return REDIS_OK;
+    if (c->flags & REDIS_LUA_CLIENT) return REDIS_OK; // lua client
     if ((c->flags & REDIS_MASTER) &&
         !(c->flags & REDIS_MASTER_FORCE_REPLY)) return REDIS_ERR;
     if (c->fd <= 0) return REDIS_ERR; /* Fake client */
@@ -1118,6 +1119,7 @@ void processInputBuffer(redisClient *c) {
     }
 }
 
+// read handler
 void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
     redisClient *c = (redisClient*) privdata;
     int nread, readlen;

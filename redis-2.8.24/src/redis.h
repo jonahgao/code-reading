@@ -534,7 +534,7 @@ typedef struct redisClient {
 
     /* Response buffer */
     int bufpos;
-    char buf[REDIS_REPLY_CHUNK_BYTES];
+    char buf[REDIS_REPLY_CHUNK_BYTES]; // 固定长度的reply buffer， 不够塞reply list里
 } redisClient;
 
 struct saveparam {
@@ -552,7 +552,7 @@ struct sharedObjectsStruct {
     *unsubscribebulk, *psubscribebulk, *punsubscribebulk, *del, *rpop, *lpop,
     *lpush, *emptyscan, *minstring, *maxstring,
     *select[REDIS_SHARED_SELECT_CMDS],
-    *integers[REDIS_SHARED_INTEGERS],
+    *integers[REDIS_SHARED_INTEGERS], // 共享前REDIS_SHARED_INTEGERS个整型对象
     *mbulkhdr[REDIS_SHARED_BULKHDR_LEN], /* "*<value>\r\n" */
     *bulkhdr[REDIS_SHARED_BULKHDR_LEN];  /* "$<value>\r\n" */
 };

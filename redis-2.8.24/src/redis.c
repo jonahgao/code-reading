@@ -855,6 +855,7 @@ long long getInstantaneousMetric(int metric) {
 int clientsCronHandleTimeout(redisClient *c) {
     time_t now = server.unixtime;
 
+    // 关闭idle超时的client
     if (server.maxidletime &&
         !(c->flags & REDIS_SLAVE) &&    /* no timeout for slaves */
         !(c->flags & REDIS_MASTER) &&   /* no timeout for masters */
@@ -865,7 +866,7 @@ int clientsCronHandleTimeout(redisClient *c) {
         redisLog(REDIS_VERBOSE,"Closing idle client");
         freeClient(c);
         return 1;
-    } else if (c->flags & REDIS_BLOCKED) {
+    } else if (c->flags & REDIS_BLOCKED) {  // 处理客户端blpop，brpop超时
         if (c->bpop.timeout != 0 && c->bpop.timeout < now) {
             addReply(c,shared.nullmultibulk);
             unblockClientWaitingData(c);
@@ -878,6 +879,7 @@ int clientsCronHandleTimeout(redisClient *c) {
  * free space not used, this function reclaims space if needed.
  *
  * The function always returns 0 as it never terminates the client. */
+// 尝试回收客户端querybuf的free部分
 int clientsCronResizeQueryBuffer(redisClient *c) {
     size_t querybuf_size = sdsAllocSize(c->querybuf);
     time_t idletime = server.unixtime - c->lastinteraction;
@@ -1013,6 +1015,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     if (server.watchdog_period) watchdogScheduleSignal(server.watchdog_period);
 
     /* Update the time cache. */
+    // 更新时间缓存 unixtime mstime
     updateCachedTime();
 
     run_with_period(100) {
@@ -1035,9 +1038,11 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
      * Note that you can change the resolution altering the
      * REDIS_LRU_CLOCK_RESOLUTION define.
      */
+    // 更新server的LRU时钟
     updateLRUClock();
 
     /* Record the max memory used since the server was started. */
+    // 尝试更新内存使用峰值
     if (zmalloc_used_memory() > server.stat_peak_memory)
         server.stat_peak_memory = zmalloc_used_memory();
 
@@ -1309,7 +1314,7 @@ void createSharedObjects(void) {
 void initServerConfig(void) {
     int j;
 
-    getRandomHexChars(server.runid,REDIS_RUN_ID_SIZE);
+    getRandomHexChars(server.runid,REDIS_RUN_ID_SIZE); // 获取一个随机的runid
     server.configfile = NULL;
     server.hz = REDIS_DEFAULT_HZ;
     server.runid[REDIS_RUN_ID_SIZE] = '\0';
@@ -1950,9 +1955,9 @@ void call(redisClient *c, int flags) {
     redisOpArrayInit(&server.also_propagate);
     dirty = server.dirty;
     start = ustime();
-    c->cmd->proc(c);
-    duration = ustime()-start;
-    dirty = server.dirty-dirty;
+    c->cmd->proc(c); // 实际执行调用
+    duration = ustime()-start; // 执行时间
+    dirty = server.dirty-dirty; // 与执行前的dirty比较，>0表示命令执行后对db有修改（需要传播）
     if (dirty < 0) dirty = 0;
 
     /* When EVAL is called loading the AOF we don't want commands called
@@ -1963,7 +1968,7 @@ void call(redisClient *c, int flags) {
     /* If the caller is Lua, we want to force the EVAL caller to propagate
      * the script if the command flag or client flag are forcing the
      * propagation. */
-    // 如果调用者是lua伪客户端，
+    // 如果调用者是lua伪客户端，则需要传播eval脚本（设置eval caller的客户端标记）
     if (c->flags & REDIS_LUA_CLIENT && server.lua_caller) {
         if (c->flags & REDIS_FORCE_REPL)
             server.lua_caller->flags |= REDIS_FORCE_REPL;
@@ -1973,7 +1978,7 @@ void call(redisClient *c, int flags) {
 
     /* Log the command into the Slow log if needed, and populate the
      * per-command statistics that we show in INFO commandstats. */
-    // 采集调用延迟和slowlog
+    // 采集调用延迟、slowlog、命令执行统计
     if (flags & REDIS_CALL_SLOWLOG && c->cmd->proc != execCommand) {
         char *latency_event = (c->cmd->flags & REDIS_CMD_FAST) ?
                               "fast-command" : "command";
@@ -1986,6 +1991,9 @@ void call(redisClient *c, int flags) {
     }
 
     /* Propagate the command into the AOF and replication link */
+    // 尝试传播命令
+    // 传播条件：call的参数flags里必须有REDIS_CALL_PROPAGATE
+    //			 然后再检查客户端c的flags有没有强制传播的flag 以及 dirty
     if (flags & REDIS_CALL_PROPAGATE) {
         int flags = REDIS_PROPAGATE_NONE;
 
