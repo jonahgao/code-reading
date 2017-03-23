@@ -1,2 +1,1 @@
-# redis-annotation
-redis2.8.24代码注解
+代码阅读注解
