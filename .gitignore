@@ -1,10 +1,10 @@
-/redis-2.8.24/src/.vscode
+# vscode
+.vscode
 
-.settings/org.eclipse.core.resources.prefs
-*.prefs
-redis-2.8.24/.cproject
-redis-2.8.24/.project
-redis-2.8.24/.settings
+# eclipse
+.settings
+.cproject
+.project
 
 
 # cmake
