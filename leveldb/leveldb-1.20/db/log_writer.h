@@ -34,11 +34,12 @@ class Writer {
 
  private:
   WritableFile* dest_;
-  int block_offset_;       // Current offset in block
+  int block_offset_;       // Current offset in block 当前的这个block写到哪了
 
   // crc32c values for all supported record types.  These are
   // pre-computed to reduce the overhead of computing the crc of the
   // record type stored in the header.
+  // 每种record类型的初始crc（已计算了type值的），index为record type
   uint32_t type_crc_[kMaxRecordType + 1];
 
   Status EmitPhysicalRecord(RecordType type, const char* ptr, size_t length);

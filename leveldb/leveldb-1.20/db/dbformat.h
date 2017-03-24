@@ -141,6 +141,7 @@ class InternalFilterPolicy : public FilterPolicy {
 // Modules in this directory should keep internal keys wrapped inside
 // the following class instead of plain strings so that we do not
 // incorrectly use string comparisons instead of an InternalKeyComparator.
+// user_key + 56bit seq + 8bit type
 class InternalKey {
  private:
   std::string rep_;

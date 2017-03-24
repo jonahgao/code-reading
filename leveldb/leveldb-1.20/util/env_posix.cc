@@ -231,6 +231,7 @@ class PosixWritableFile : public WritableFile {
     return Status::OK();
   }
 
+  // 调用fclose，close时只flush c库的buffer，不会sync内核的buffer到磁盘
   virtual Status Close() {
     Status result;
     if (fclose(file_) != 0) {

@@ -183,11 +183,11 @@ Status DBImpl::NewDB() {
 
   const std::string manifest = DescriptorFileName(dbname_, 1);
   WritableFile* file;
-  Status s = env_->NewWritableFile(manifest, &file);
+  Status s = env_->NewWritableFile(manifest, &file);  // 创建MANIFEST文件，序号1
   if (!s.ok()) {
     return s;
   }
-  {
+  { // 向MAINFEST添加初始version
     log::Writer log(file);
     std::string record;
     new_db.EncodeTo(&record);
@@ -277,16 +277,17 @@ Status DBImpl::Recover(VersionEdit* edit, bool *save_manifest) {
   // Ignore error from CreateDir since the creation of the DB is
   // committed only when the descriptor is created, and this directory
   // may already exist from a previous failed creation attempt.
-  env_->CreateDir(dbname_);
+  env_->CreateDir(dbname_); // 尝试创建目录
   assert(db_lock_ == NULL);
-  Status s = env_->LockFile(LockFileName(dbname_), &db_lock_);
+  Status s = env_->LockFile(LockFileName(dbname_), &db_lock_); // 文件锁 {db_name_}/LOCK
   if (!s.ok()) {
     return s;
   }
 
+  // 检查CURRENT是否存在来判断DB是否已经存在
   if (!env_->FileExists(CurrentFileName(dbname_))) {
     if (options_.create_if_missing) {
-      s = NewDB();
+      s = NewDB(); // 不存在，初始化新DB
       if (!s.ok()) {
         return s;
       }

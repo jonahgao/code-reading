@@ -35,7 +35,7 @@ Writer::~Writer() {
 
 Status Writer::AddRecord(const Slice& slice) {
   const char* ptr = slice.data();
-  size_t left = slice.size();
+  size_t left = slice.size(); // left：record剩余还未写入的
 
   // Fragment the record if necessary and emit it.  Note that if slice
   // is empty, we still want to iterate once to emit a single
@@ -45,12 +45,12 @@ Status Writer::AddRecord(const Slice& slice) {
   do {
     const int leftover = kBlockSize - block_offset_;
     assert(leftover >= 0);
-    if (leftover < kHeaderSize) {
+    if (leftover < kHeaderSize) { // 当期的block剩余空间已不足kHanderSize
       // Switch to a new block
       if (leftover > 0) {
         // Fill the trailer (literal below relies on kHeaderSize being 7)
         assert(kHeaderSize == 7);
-        dest_->Append(Slice("\x00\x00\x00\x00\x00\x00", leftover));
+        dest_->Append(Slice("\x00\x00\x00\x00\x00\x00", leftover)); // padding
       }
       block_offset_ = 0;
     }
@@ -63,13 +63,13 @@ Status Writer::AddRecord(const Slice& slice) {
 
     RecordType type;
     const bool end = (left == fragment_length);
-    if (begin && end) {
+    if (begin && end) {  // 不用分片
       type = kFullType;
-    } else if (begin) {
+    } else if (begin) {  // 第一分片
       type = kFirstType;
-    } else if (end) {
+    } else if (end) {    // 最后一个分片
       type = kLastType;
-    } else {
+    } else {            // 中间的分片
       type = kMiddleType;
     }
 
@@ -87,9 +87,9 @@ Status Writer::EmitPhysicalRecord(RecordType t, const char* ptr, size_t n) {
 
   // Format the header
   char buf[kHeaderSize];
-  buf[4] = static_cast<char>(n & 0xff);
-  buf[5] = static_cast<char>(n >> 8);
-  buf[6] = static_cast<char>(t);
+  buf[4] = static_cast<char>(n & 0xff);  // length低位
+  buf[5] = static_cast<char>(n >> 8);    // length高位
+  buf[6] = static_cast<char>(t);         // record type
 
   // Compute the crc of the record type and the payload.
   uint32_t crc = crc32c::Extend(type_crc_[t], ptr, n);
