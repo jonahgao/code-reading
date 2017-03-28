@@ -6,11 +6,7 @@ set(CMAKE_CXX_STANDARD 11)
 set(CXX_FLAGS
     -Wall
     -Wextra
-    -fno-builtin-memcmp 
-    -DOS_LINUX 
-    -DLEVELDB_PLATFORM_POSIX 
-    -DLEVELDB_ATOMIC_PRESENT
-    -DSNAPPY 
+    -fno-builtin-memcmp
     -O2
     -DNDEBUG 
     -fPIC)
@@ -70,3 +66,7 @@ include_directories(
 
 add_library(leveldb SHARED ${SOURCE_FILES})
 set_target_properties(leveldb PROPERTIES SOVERSION 1.20)
+add_definitions(-DOS_LINUX
+        -DLEVELDB_PLATFORM_POSIX
+        -DLEVELDB_ATOMIC_PRESENT
+        -DSNAPPY)
