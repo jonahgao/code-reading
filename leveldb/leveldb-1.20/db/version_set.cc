@@ -919,7 +919,7 @@ Status VersionSet::Recover(bool *save_manifest) {
   if (current.empty() || current[current.size()-1] != '\n') {
     return Status::Corruption("CURRENT file does not end with newline");
   }
-  current.resize(current.size() - 1);
+  current.resize(current.size() - 1);  // 去掉\n
 
   std::string dscname = dbname_ + "/" + current;
   SequentialFile* file;

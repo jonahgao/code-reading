@@ -69,6 +69,7 @@ Status WriteStringToFileSync(Env* env, const Slice& data,
   return DoWriteStringToFile(env, data, fname, true);
 }
 
+// 把整个文件都读出来，到data中
 Status ReadFileToString(Env* env, const std::string& fname, std::string* data) {
   data->clear();
   SequentialFile* file;

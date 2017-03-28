@@ -21,7 +21,7 @@ enum FileType {
   kLogFile,
   kDBLockFile,
   kTableFile,
-  kDescriptorFile,
+  kDescriptorFile,   // MANIFEST
   kCurrentFile,
   kTempFile,
   kInfoLogFile  // Either the current one, or an old one

@@ -129,11 +129,11 @@ Status SetCurrentFile(Env* env, const std::string& dbname,
   std::string manifest = DescriptorFileName(dbname, descriptor_number);
   Slice contents = manifest;
   assert(contents.starts_with(dbname + "/"));
-  contents.remove_prefix(dbname.size() + 1);
+  contents.remove_prefix(dbname.size() + 1); // 只要文件名，不要目录
   std::string tmp = TempFileName(dbname, descriptor_number);
-  Status s = WriteStringToFileSync(env, contents.ToString() + "\n", tmp);
+  Status s = WriteStringToFileSync(env, contents.ToString() + "\n", tmp); // write "MANIFEST-%d\n"，sync、close
   if (s.ok()) {
-    s = env->RenameFile(tmp, CurrentFileName(dbname));
+    s = env->RenameFile(tmp, CurrentFileName(dbname)); // 把临时文件重命名为CURRENT
   }
   if (!s.ok()) {
     env->DeleteFile(tmp);
