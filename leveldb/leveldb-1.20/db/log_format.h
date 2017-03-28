@@ -29,6 +29,14 @@ static const int kBlockSize = 32768;
 // Header is checksum (4 bytes), length (2 bytes), type (1 byte).
 static const int kHeaderSize = 4 + 2 + 1;
 
+
+// 一个record 结构
+// [ checksum ] 4字节
+// [ length ]   payload length 2字节
+// [ type ]     record type 1字节
+// [ payload ]  实际数据
+
+
 }  // namespace log
 }  // namespace leveldb
 

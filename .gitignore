@@ -9,3 +9,6 @@
 
 # cmake
 cmake-build-debug
+
+# clion
+.idea
