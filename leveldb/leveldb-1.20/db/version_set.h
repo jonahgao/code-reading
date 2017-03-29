@@ -129,7 +129,7 @@ class Version {
                           void* arg,
                           bool (*func)(void*, int, FileMetaData*));
 
-  // Version以双链表的形式存放在vset_中
+  // Version以双链表的形式存放在vset_中, Version析构时从链表中删除
   VersionSet* vset_;            // VersionSet to which this Version belongs
   Version* next_;               // Next version in linked list
   Version* prev_;               // Previous version in linked list
@@ -307,8 +307,8 @@ class VersionSet {
   uint64_t prev_log_number_;  // 0 or backing store for memtable being compacted
 
   // Opened lazily
-  WritableFile* descriptor_file_;
-  log::Writer* descriptor_log_;
+  WritableFile* descriptor_file_;  // MANIFEST文件
+  log::Writer* descriptor_log_;   // MANIFEST Writer（MANIFEST的格式跟log一样，record的形式）
   Version dummy_versions_;  // Head of circular doubly-linked list of versions.
   Version* current_;        // == dummy_versions_.prev_
 

@@ -42,7 +42,7 @@ static double MaxBytesForLevel(const Options* options, int level) {
   // the level-0 compaction threshold based on number of files.
 
   // Result for both level-0 and level-1
-  double result = 10. * 1048576.0;
+  double result = 10. * 1048576.0; // 10M
   while (level > 1) {
     result *= 10;
     level--;
@@ -758,11 +758,13 @@ class VersionSet::Builder {
     }
   }
 
+  // 检查是否在delte_files中，如果在则不添加；添加时file->refs++
   void MaybeAddFile(Version* v, int level, FileMetaData* f) {
     if (levels_[level].deleted_files.count(f->number) > 0) {
       // File is deleted: do nothing
     } else {
       std::vector<FileMetaData*>* files = &v->files_[level];
+      // 检验level0以上的文件是否有重叠
       if (level > 0 && !files->empty()) {
         // Must not overlap
         assert(vset_->icmp_.Compare((*files)[files->size()-1]->largest,
@@ -802,6 +804,7 @@ VersionSet::~VersionSet() {
   delete descriptor_file_;
 }
 
+// 添加新版本到链表末尾，current<-v
 void VersionSet::AppendVersion(Version* v) {
   // Make "v" current
   assert(v->refs_ == 0);
@@ -1029,6 +1032,7 @@ Status VersionSet::Recover(bool *save_manifest) {
   return s;
 }
 
+// Reopen时判断是否重用旧的MANIFEST，不重写（加快打开速度）
 bool VersionSet::ReuseManifest(const std::string& dscname,
                                const std::string& dscbase) {
   if (!options_->reuse_logs) {
@@ -1066,6 +1070,7 @@ void VersionSet::MarkFileNumberUsed(uint64_t number) {
   }
 }
 
+// 计算compaction_level_和compaction_score_
 void VersionSet::Finalize(Version* v) {
   // Precomputed best level for next compaction
   int best_level = -1;
@@ -1085,10 +1090,11 @@ void VersionSet::Finalize(Version* v) {
       // file size is small (perhaps because of a small write-buffer
       // setting, or very high compression ratios, or lots of
       // overwrites/deletions).
+      // Level0使用文件个数计算compact score
       score = v->files_[level].size() /
           static_cast<double>(config::kL0_CompactionTrigger);
     } else {
-      // Compute the ratio of current size to size limit.
+      // Compute the ratio of current size to size limit. 使用文件大小总和
       const uint64_t level_bytes = TotalFileSize(v->files_[level]);
       score =
           static_cast<double>(level_bytes) / MaxBytesForLevel(options_, level);
@@ -1187,6 +1193,7 @@ uint64_t VersionSet::ApproximateOffsetOf(Version* v, const InternalKey& ikey) {
   return result;
 }
 
+// 返回所有版本所有表文件的number
 void VersionSet::AddLiveFiles(std::set<uint64_t>* live) {
   for (Version* v = dummy_versions_.next_;
        v != &dummy_versions_;

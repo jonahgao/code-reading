@@ -15,6 +15,7 @@ namespace {
 
 typedef Iterator* (*BlockFunction)(void*, const ReadOptions&, const Slice&);
 
+// 两级迭代器：Index block和data block
 class TwoLevelIterator: public Iterator {
  public:
   TwoLevelIterator(

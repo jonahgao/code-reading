@@ -302,6 +302,7 @@ Status DBImpl::Recover(VersionEdit* edit, bool *save_manifest) {
     }
   }
 
+  // 读取MANIFEST重新载入
   s = versions_->Recover(save_manifest);
   if (!s.ok()) {
     return s;
@@ -330,10 +331,11 @@ Status DBImpl::Recover(VersionEdit* edit, bool *save_manifest) {
   for (size_t i = 0; i < filenames.size(); i++) {
     if (ParseFileName(filenames[i], &number, &type)) {
       expected.erase(number);
-      if (type == kLogFile && ((number >= min_log) || (number == prev_log)))
+      if (type == kLogFile && ((number >= min_log) || (number == prev_log)))  // 找到大于>= min_log（MANIFEST中读取的）的log文件
         logs.push_back(number);
     }
   }
+  // versions中的某个表文件在DB目录中没有找到
   if (!expected.empty()) {
     char buf[50];
     snprintf(buf, sizeof(buf), "%d missing files; e.g.",
@@ -342,6 +344,7 @@ Status DBImpl::Recover(VersionEdit* edit, bool *save_manifest) {
   }
 
   // Recover in the order in which the logs were generated
+  // 按序对log文件进行恢复操作（REDO）
   std::sort(logs.begin(), logs.end());
   for (size_t i = 0; i < logs.size(); i++) {
     s = RecoverLogFile(logs[i], (i == logs.size() - 1), save_manifest, edit,
@@ -363,6 +366,7 @@ Status DBImpl::Recover(VersionEdit* edit, bool *save_manifest) {
   return Status::OK();
 }
 
+// REDO log文件
 Status DBImpl::RecoverLogFile(uint64_t log_number, bool last_log,
                               bool* save_manifest, VersionEdit* edit,
                               SequenceNumber* max_sequence) {
@@ -1496,7 +1500,7 @@ Status DB::Open(const Options& options, const std::string& dbname,
   impl->mutex_.Lock();
   VersionEdit edit;
   // Recover handles create_if_missing, error_if_exists
-  bool save_manifest = false;
+  bool save_manifest = false;  // 是否需要写MANIFEST（如果重用之前的MANIFEST就不需要）
   Status s = impl->Recover(&edit, &save_manifest);
   if (s.ok() && impl->mem_ == NULL) {
     // Create new log and a corresponding memtable.
