@@ -129,6 +129,7 @@ class Version {
                           void* arg,
                           bool (*func)(void*, int, FileMetaData*));
 
+  // Version以双链表的形式存放在vset_中
   VersionSet* vset_;            // VersionSet to which this Version belongs
   Version* next_;               // Next version in linked list
   Version* prev_;               // Previous version in linked list

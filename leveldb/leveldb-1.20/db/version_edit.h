@@ -14,10 +14,11 @@ namespace leveldb {
 
 class VersionSet;
 
+// FileMetaData 代表一个SST表文件
 struct FileMetaData {
   int refs;
-  int allowed_seeks;          // Seeks allowed until compaction
-  uint64_t number;
+  int allowed_seeks;          // Seeks allowed until compaction 每被查找一次-1, 当小于等于0时就compact这个文件
+  uint64_t number;            // 后缀序号
   uint64_t file_size;         // File size in bytes
   InternalKey smallest;       // Smallest internal key served by table
   InternalKey largest;        // Largest internal key served by table
@@ -25,6 +26,7 @@ struct FileMetaData {
   FileMetaData() : refs(0), allowed_seeks(1 << 30), file_size(0) { }
 };
 
+// VersionEdit 版本修改增量
 class VersionEdit {
  public:
   VersionEdit() { Clear(); }
@@ -86,7 +88,7 @@ class VersionEdit {
 
   typedef std::set< std::pair<int, uint64_t> > DeletedFileSet;
 
-  std::string comparator_;
+  std::string comparator_;  // 比较器comparator的名字
   uint64_t log_number_;
   uint64_t prev_log_number_;
   uint64_t next_file_number_;

@@ -623,9 +623,9 @@ class VersionSet::Builder {
     FileSet* added_files;
   };
 
-  VersionSet* vset_;
-  Version* base_;
-  LevelState levels_[config::kNumLevels];
+  VersionSet* vset_;  // 属于哪个VersionSet
+  Version* base_;   // 起始版本
+  LevelState levels_[config::kNumLevels];  // 每个level的文件（删除和添加的）
 
  public:
   // Initialize a builder with the files from *base and other info from *vset
@@ -684,7 +684,7 @@ class VersionSet::Builder {
     for (size_t i = 0; i < edit->new_files_.size(); i++) {
       const int level = edit->new_files_[i].first;
       FileMetaData* f = new FileMetaData(edit->new_files_[i].second);
-      f->refs = 1;
+      f->refs = 1; // 新添加的文件初始引用计数为1
 
       // We arrange to automatically compact this file after
       // a certain number of seeks.  Let's assume:
@@ -699,6 +699,8 @@ class VersionSet::Builder {
       // same as the compaction of 40KB of data.  We are a little
       // conservative and allow approximately one seek for every 16KB
       // of data before triggering a compaction.
+      // compaction 1MB数据花费25MB IO，约等于25次Seek
+      // 也就是说一次seek约等于compact40KB 数据，保守取16KB=16384
       f->allowed_seeks = (f->file_size / 16384);
       if (f->allowed_seeks < 100) f->allowed_seeks = 100;
 
@@ -911,6 +913,7 @@ Status VersionSet::Recover(bool *save_manifest) {
   };
 
   // Read "CURRENT" file, which contains a pointer to the current manifest file
+  // 读CURRENT， 找MANIFEST
   std::string current;
   Status s = ReadFileToString(env_, CurrentFileName(dbname_), &current);
   if (!s.ok()) {
@@ -921,6 +924,7 @@ Status VersionSet::Recover(bool *save_manifest) {
   }
   current.resize(current.size() - 1);  // 去掉\n
 
+  // 读MANIFEST
   std::string dscname = dbname_ + "/" + current;
   SequentialFile* file;
   s = env_->NewSequentialFile(dscname, &file);
@@ -948,6 +952,7 @@ Status VersionSet::Recover(bool *save_manifest) {
       VersionEdit edit;
       s = edit.DecodeFrom(record);
       if (s.ok()) {
+        // 用户在选项里指定的comparator和MANIFEST里恢复的不一致，出错
         if (edit.has_comparator_ &&
             edit.comparator_ != icmp_.user_comparator()->Name()) {
           s = Status::InvalidArgument(
