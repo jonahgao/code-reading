@@ -391,6 +391,7 @@ class Compaction {
   // is that we are positioned at one of the file ranges for each
   // higher level than the ones involved in this compaction (i.e. for
   // all L >= level_ + 2).
+  // 记录上一次IsBaseLevelForKey调用后的位置，以便快速检查（下一次调用的user_key一定会比上次大）
   size_t level_ptrs_[config::kNumLevels];
 };
 

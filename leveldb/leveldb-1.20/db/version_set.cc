@@ -1241,6 +1241,7 @@ int64_t VersionSet::MaxNextLevelOverlappingBytes() {
 // Stores the minimal range that covers all entries in inputs in
 // *smallest, *largest.
 // REQUIRES: inputs is not empty
+// 获取inputs集合中最小、最大的InternalKey
 void VersionSet::GetRange(const std::vector<FileMetaData*>& inputs,
                           InternalKey* smallest,
                           InternalKey* largest) {
@@ -1365,11 +1366,13 @@ Compaction* VersionSet::PickCompaction() {
 void VersionSet::SetupOtherInputs(Compaction* c) {
   const int level = c->level();
   InternalKey smallest, largest;
-  GetRange(c->inputs_[0], &smallest, &largest);
+  GetRange(c->inputs_[0], &smallest, &largest);  // 获取compact的L层最小、最大key
 
+  // 查找有重叠的L+1层文件
   current_->GetOverlappingInputs(level+1, &smallest, &largest, &c->inputs_[1]);
 
   // Get entire range covered by compaction
+  // 获取input[0]、input[1]在内的文件集合的最小、最大InternalKey
   InternalKey all_start, all_limit;
   GetRange2(c->inputs_[0], c->inputs_[1], &all_start, &all_limit);
 
@@ -1502,6 +1505,7 @@ void Compaction::AddInputDeletions(VersionEdit* edit) {
   }
 }
 
+// Level+2及以上的Level中不存在这个user_key（不在任何一个文件的key范围内），则返回true
 bool Compaction::IsBaseLevelForKey(const Slice& user_key) {
   // Maybe use binary search to find right entry instead of linear search?
   const Comparator* user_cmp = input_version_->vset_->icmp_.user_comparator();
