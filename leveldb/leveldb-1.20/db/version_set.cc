@@ -71,6 +71,7 @@ Version::~Version() {
   next_->prev_ = prev_;
 
   // Drop references to files
+  // Version引用的各个文件引用计数-1, 如果某文件的引用计数为0则删除
   for (int level = 0; level < config::kNumLevels; level++) {
     for (size_t i = 0; i < files_[level].size(); i++) {
       FileMetaData* f = files_[level][i];
@@ -528,6 +529,7 @@ int Version::PickLevelForMemTableOutput(
 }
 
 // Store in "*inputs" all files in "level" that overlap [begin,end]
+// 查找level层跟[begin, end]范围有重叠的文件
 void Version::GetOverlappingInputs(
     int level,
     const InternalKey* begin,
@@ -557,6 +559,7 @@ void Version::GetOverlappingInputs(
       if (level == 0) {
         // Level-0 files may overlap each other.  So check if the newly
         // added file has expanded the range.  If so, restart search.
+        // level0新加入input的文件有可能导致key范围变大，此时需要重新从头开始
         if (begin != NULL && user_cmp->Compare(file_start, user_begin) < 0) {
           user_begin = file_start;
           inputs->clear();
@@ -822,6 +825,7 @@ void VersionSet::AppendVersion(Version* v) {
   v->next_->prev_ = v;
 }
 
+// 应用新版本
 Status VersionSet::LogAndApply(VersionEdit* edit, port::Mutex* mu) {
   if (edit->has_log_number_) {
     assert(edit->log_number_ >= log_number_);
@@ -837,6 +841,7 @@ Status VersionSet::LogAndApply(VersionEdit* edit, port::Mutex* mu) {
   edit->SetNextFile(next_file_number_);
   edit->SetLastSequence(last_sequence_);
 
+  // current_ + 增量 生成新版本
   Version* v = new Version(this);
   {
     Builder builder(this, current_);
@@ -862,6 +867,7 @@ Status VersionSet::LogAndApply(VersionEdit* edit, port::Mutex* mu) {
     }
   }
 
+  // MANIFEST写入增量
   // Unlock during expensive MANIFEST log write
   {
     mu->Unlock();
@@ -881,6 +887,7 @@ Status VersionSet::LogAndApply(VersionEdit* edit, port::Mutex* mu) {
 
     // If we just created a new descriptor file, install it by writing a
     // new CURRENT file that points to it.
+    // 更新CURRENT文件
     if (s.ok() && !new_manifest_file.empty()) {
       s = SetCurrentFile(env_, dbname_, manifest_file_number_);
     }
@@ -889,6 +896,7 @@ Status VersionSet::LogAndApply(VersionEdit* edit, port::Mutex* mu) {
   }
 
   // Install the new version
+  // 应用新版本
   if (s.ok()) {
     AppendVersion(v);
     log_number_ = edit->log_number_;
@@ -1436,6 +1444,7 @@ Compaction* VersionSet::CompactRange(
   // But we cannot do this for level-0 since level-0 files can overlap
   // and we must not pick one file and drop another older file if the
   // two files overlap.
+  // 限制compact涉及的文件总大小。L0不限制
   if (level > 0) {
     const uint64_t limit = MaxFileSizeForLevel(options_, level);
     uint64_t total = 0;

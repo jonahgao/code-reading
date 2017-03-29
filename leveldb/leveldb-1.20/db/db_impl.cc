@@ -647,6 +647,7 @@ void DBImpl::RecordBackgroundError(const Status& s) {
   }
 }
 
+// 检查是否需要compact，需要的话投放任务到后台线程中
 void DBImpl::MaybeScheduleCompaction() {
   mutex_.AssertHeld();
   if (bg_compaction_scheduled_) {
@@ -661,7 +662,7 @@ void DBImpl::MaybeScheduleCompaction() {
     // No work to be done
   } else {
     bg_compaction_scheduled_ = true;
-    env_->Schedule(&DBImpl::BGWork, this);
+    env_->Schedule(&DBImpl::BGWork, this); // 放到bgthread_中执行
   }
 }
 
@@ -692,14 +693,14 @@ void DBImpl::BackgroundCompaction() {
   mutex_.AssertHeld();
 
   if (imm_ != NULL) {
-    CompactMemTable();
+    CompactMemTable();  // 已冻结的memtable写入到L0,并返回
     return;
   }
 
   Compaction* c;
   bool is_manual = (manual_compaction_ != NULL);
   InternalKey manual_end;
-  if (is_manual) {
+  if (is_manual) {   // 手动触发，compact某个key范围
     ManualCompaction* m = manual_compaction_;
     c = versions_->CompactRange(m->level, m->begin, m->end);
     m->done = (c == NULL);
