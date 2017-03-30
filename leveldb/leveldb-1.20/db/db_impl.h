@@ -137,7 +137,7 @@ class DBImpl : public DB {
   port::Mutex mutex_;
   port::AtomicPointer shutting_down_;
   port::CondVar bg_cv_;          // Signalled when background work finishes
-  MemTable* mem_;                // 当期的memtable
+  MemTable* mem_;                // 当前的memtable
   MemTable* imm_;                // Memtable being compacted，已写满冻结的
   port::AtomicPointer has_imm_;  // So bg thread can detect non-NULL imm_
   WritableFile* logfile_;

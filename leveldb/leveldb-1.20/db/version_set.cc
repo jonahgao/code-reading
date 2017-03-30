@@ -37,6 +37,7 @@ static int64_t ExpandedCompactionByteSizeLimit(const Options* options) {
   return 25 * TargetFileSize(options);
 }
 
+// 每层所有文件的总大小
 static double MaxBytesForLevel(const Options* options, int level) {
   // Note: the result for level zero is not really used since we set
   // the level-0 compaction threshold based on number of files.
@@ -1318,6 +1319,7 @@ Compaction* VersionSet::PickCompaction() {
 
   // We prefer compactions triggered by too much data in a level over
   // the compactions triggered by seeks.
+  // compaction_score_比seek统计优先
   const bool size_compaction = (current_->compaction_score_ >= 1);
   const bool seek_compaction = (current_->file_to_compact_ != NULL);
   if (size_compaction) {
