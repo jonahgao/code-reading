@@ -17,7 +17,7 @@ class VersionSet;
 // FileMetaData 代表一个SST表文件
 struct FileMetaData {
   int refs;
-  int allowed_seeks;          // Seeks allowed until compaction 每被查找一次-1, 当小于等于0时就compact这个文件
+  int allowed_seeks;          // Seeks allowed until compaction 当小于等于0时就compact这个文件
   uint64_t number;            // 后缀序号
   uint64_t file_size;         // File size in bytes
   InternalKey smallest;       // Smallest internal key served by table

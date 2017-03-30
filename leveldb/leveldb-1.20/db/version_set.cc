@@ -358,6 +358,7 @@ Status Version::Get(const ReadOptions& options,
     if (level == 0) {
       // Level-0 files may overlap each other.  Find all files that
       // overlap user_key and process them in order from newest to oldest.
+      // Level-0可能会有多个跟user_key有重叠的文件，按新到旧排序查找
       tmp.reserve(num_files);
       for (uint32_t i = 0; i < num_files; i++) {
         FileMetaData* f = files[i];
@@ -373,6 +374,7 @@ Status Version::Get(const ReadOptions& options,
       num_files = tmp.size();
     } else {
       // Binary search to find earliest index whose largest key >= ikey.
+      // Level-0以上不重叠，直接二分查找
       uint32_t index = FindFile(vset_->icmp_, files_[level], ikey);
       if (index >= num_files) {
         files = NULL;
@@ -393,6 +395,7 @@ Status Version::Get(const ReadOptions& options,
     for (uint32_t i = 0; i < num_files; ++i) {
       if (last_file_read != NULL && stats->seek_file == NULL) {
         // We have had more than one seek for this read.  Charge the 1st file.
+        // last_file_read不为空表示本次Get读取了超过一个以上的文件，标记第一个查找的文件，后续--allowed_seeks
         stats->seek_file = last_file_read;
         stats->seek_file_level = last_file_read_level;
       }
@@ -1378,12 +1381,15 @@ void VersionSet::SetupOtherInputs(Compaction* c) {
 
   // See if we can grow the number of inputs in "level" without
   // changing the number of "level+1" files we pick up.
+  // 在不引起L+1层input变大的情况下，尝试引入更多L层input
   if (!c->inputs_[1].empty()) {
     std::vector<FileMetaData*> expanded0;
+    // 因为[all_start, all_limit]的范围可能比原来大了（选取L+1的过程中），所以回过头来看看能不能引入更大的L层文件
     current_->GetOverlappingInputs(level, &all_start, &all_limit, &expanded0);
     const int64_t inputs0_size = TotalFileSize(c->inputs_[0]);
     const int64_t inputs1_size = TotalFileSize(c->inputs_[1]);
     const int64_t expanded0_size = TotalFileSize(expanded0);
+    // expanded0.size() > c->inputs_[0].size() 表示L层有扩展（新增），但同时总的文件大小不能超过限制
     if (expanded0.size() > c->inputs_[0].size() &&
         inputs1_size + expanded0_size <
             ExpandedCompactionByteSizeLimit(options_)) {
@@ -1392,6 +1398,8 @@ void VersionSet::SetupOtherInputs(Compaction* c) {
       std::vector<FileMetaData*> expanded1;
       current_->GetOverlappingInputs(level+1, &new_start, &new_limit,
                                      &expanded1);
+      // 这里保证新扩展的L层文件不会导致L+1层的扩展
+      // 即L+1层跟扩展后L层的新范围有重叠的文件不会比以前更多
       if (expanded1.size() == c->inputs_[1].size()) {
         Log(options_->info_log,
             "Expanding@%d %d+%d (%ld+%ld bytes) to %d+%d (%ld+%ld bytes)\n",
@@ -1413,6 +1421,7 @@ void VersionSet::SetupOtherInputs(Compaction* c) {
 
   // Compute the set of grandparent files that overlap this compaction
   // (parent == level+1; grandparent == level+2)
+  // 计算L+2层跟input有重叠的文件
   if (level + 2 < config::kNumLevels) {
     current_->GetOverlappingInputs(level + 2, &all_start, &all_limit,
                                    &c->grandparents_);
@@ -1429,6 +1438,7 @@ void VersionSet::SetupOtherInputs(Compaction* c) {
   // We update this immediately instead of waiting for the VersionEdit
   // to be applied so that if the compaction fails, we will try a different
   // key range next time.
+  // 每层进度更新为largest
   compact_pointer_[level] = largest.Encode().ToString();
   c->edit_.SetCompactPointer(level, largest);
 }
