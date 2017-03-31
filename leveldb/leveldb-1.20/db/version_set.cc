@@ -1288,6 +1288,8 @@ Iterator* VersionSet::MakeInputIterator(Compaction* c) {
   // Level-0 files have to be merged together.  For other levels,
   // we will make a concatenating iterator per level.
   // TODO(opt): use concatenating iterator for level-0 if there is no overlap
+  // c->lelvel()==0: 每个L0 input file一个itertor 、L+1层一个串接iterator
+  // 其他：两个串接的iterator L层和 L+1 层
   const int space = (c->level() == 0 ? c->inputs_[0].size() + 1 : 2);
   Iterator** list = new Iterator*[space];
   int num = 0;
@@ -1539,6 +1541,7 @@ bool Compaction::IsBaseLevelForKey(const Slice& user_key) {
   return true;
 }
 
+// 确保单个compact output文件跟L+2层重叠的字节数不会太多
 bool Compaction::ShouldStopBefore(const Slice& internal_key) {
   const VersionSet* vset = input_version_->vset_;
   // Scan to find earliest grandparent file that contains key.
@@ -1555,7 +1558,7 @@ bool Compaction::ShouldStopBefore(const Slice& internal_key) {
 
   if (overlapped_bytes_ > MaxGrandParentOverlapBytes(vset->options_)) {
     // Too much overlap for current output; start new output
-    overlapped_bytes_ = 0;
+    overlapped_bytes_ = 0;  // 返回true的同时，overlapped_bytes重置
     return true;
   } else {
     return false;

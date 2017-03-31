@@ -7,12 +7,13 @@ set(CXX_FLAGS
     -Wall
     -Wextra
     -fno-builtin-memcmp
-    -O2
-    -DNDEBUG 
     -fPIC)
 
 
 string(REPLACE ";" " " CMAKE_CXX_FLAGS "${CXX_FLAGS}") 
+
+set(CMAKE_CXX_FLAGS_DEBUG "-O0 -g")
+set(CMAKE_CXX_FLAGS_RELEASE "-O2 -DNDEBUG")
 
 message(STATUS ${CMAKE_CXX_FLAGS})
 
@@ -24,7 +25,6 @@ set(SOURCE_FILES
     db/db_iter.cc
     db/dumpfile.cc
     db/filename.cc
-    db/leveldbutil.cc
     db/log_reader.cc
     db/log_writer.cc
     db/memtable.cc
@@ -70,3 +70,6 @@ add_definitions(-DOS_LINUX
         -DLEVELDB_PLATFORM_POSIX
         -DLEVELDB_ATOMIC_PRESENT
         -DSNAPPY)
+
+add_executable(leveldb_test ${SOURCE_FILES} test_main.cpp)
+target_link_libraries(leveldb_test snappy pthread)

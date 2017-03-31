@@ -569,6 +569,7 @@ void DBImpl::CompactMemTable() {
   }
 }
 
+// 手动触发compaction，begin和end都是user_key
 void DBImpl::CompactRange(const Slice* begin, const Slice* end) {
   int max_level_with_files = 1;
   {
@@ -598,7 +599,7 @@ void DBImpl::TEST_CompactRange(int level, const Slice* begin,const Slice* end) {
   if (begin == NULL) {
     manual.begin = NULL;
   } else {
-    begin_storage = InternalKey(*begin, kMaxSequenceNumber, kValueTypeForSeek);
+    begin_storage = InternalKey(*begin, kMaxSequenceNumber, kValueTypeForSeek); // 转成InternalKey
     manual.begin = &begin_storage;
   }
   if (end == NULL) {
@@ -610,11 +611,11 @@ void DBImpl::TEST_CompactRange(int level, const Slice* begin,const Slice* end) {
 
   MutexLock l(&mutex_);
   while (!manual.done && !shutting_down_.Acquire_Load() && bg_error_.ok()) {
-    if (manual_compaction_ == NULL) {  // Idle
+    if (manual_compaction_ == NULL) {  // Idle 没有手动任务，就投入到后台执行
       manual_compaction_ = &manual;
       MaybeScheduleCompaction();
     } else {  // Running either my compaction or another compaction.
-      bg_cv_.Wait();
+      bg_cv_.Wait();  // 已经有后台任务在执行就等待它完成
     }
   }
   if (manual_compaction_ == &manual) {
@@ -904,14 +905,15 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
   assert(compact->builder == NULL);
   assert(compact->outfile == NULL);
   if (snapshots_.empty()) {
-    compact->smallest_snapshot = versions_->LastSequence();
+    compact->smallest_snapshot = versions_->LastSequence(); // 没有存活的snapshot，取db最近的seq
   } else {
-    compact->smallest_snapshot = snapshots_.oldest()->number_;
+    compact->smallest_snapshot = snapshots_.oldest()->number_; // 取snapshot中seq最小的作为compact的seq限制
   }
 
   // Release mutex while we're actually doing the compaction work
   mutex_.Unlock();
 
+  // 创建inputs的merge iterator
   Iterator* input = versions_->MakeInputIterator(compact->compaction);
   input->SeekToFirst();
   Status status;
@@ -921,12 +923,12 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
   SequenceNumber last_sequence_for_key = kMaxSequenceNumber;
   for (; input->Valid() && !shutting_down_.Acquire_Load(); ) {
     // Prioritize immutable compaction work
-    if (has_imm_.NoBarrier_Load() != NULL) {
+    if (has_imm_.NoBarrier_Load() != NULL) { // 如果有冻结的memtable需要compact 就先处理它
       const uint64_t imm_start = env_->NowMicros();
       mutex_.Lock();
       if (imm_ != NULL) {
         CompactMemTable();
-        bg_cv_.SignalAll();  // Wakeup MakeRoomForWrite() if necessary
+        bg_cv_.SignalAll();  // Wakeup MakeRoomForWrite() if
       }
       mutex_.Unlock();
       imm_micros += (env_->NowMicros() - imm_start);
@@ -943,7 +945,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
 
     // Handle key/value, add to state, etc.
     bool drop = false;
-    if (!ParseInternalKey(key, &ikey)) {
+    if (!ParseInternalKey(key, &ikey)) { // 忽略解析错误的key？
       // Do not hide error keys
       current_user_key.clear();
       has_current_user_key = false;
@@ -958,12 +960,15 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
         last_sequence_for_key = kMaxSequenceNumber;
       }
 
+      // 前面出现过相同的user_key（如果没出现过，last_sequence_for_key为kMaxSequenceNumber，肯定不会小于等于）
+      // 且seq <= snapshot最小的，则本条可删除（userkey相同的，第一个小于等于compact->smallest_snapshot的不能删，再往后的就可以了）
       if (last_sequence_for_key <= compact->smallest_snapshot) {
         // Hidden by an newer entry for same user key
         drop = true;    // (A)
       } else if (ikey.type == kTypeDeletion &&
                  ikey.sequence <= compact->smallest_snapshot &&
                  compact->compaction->IsBaseLevelForKey(ikey.user_key)) {
+        // 对于delete类型，如果key的seq小于smallest_snapshot，且更高的level中没有该user_key，则可删（drop）
         // For this user key:
         // (1) there is no data in higher levels
         // (2) data in lower levels will have larger sequence numbers
@@ -994,15 +999,15 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
           break;
         }
       }
-      if (compact->builder->NumEntries() == 0) {
+      if (compact->builder->NumEntries() == 0) { // 当期output文件的首条KV，设置smallest key
         compact->current_output()->smallest.DecodeFrom(key);
       }
-      compact->current_output()->largest.DecodeFrom(key);
-      compact->builder->Add(key, input->value());
+      compact->current_output()->largest.DecodeFrom(key); // 更新largest
+      compact->builder->Add(key, input->value()); // 写入KV
 
       // Close output file if it is big enough
       if (compact->builder->FileSize() >=
-          compact->compaction->MaxOutputFileSize()) {
+          compact->compaction->MaxOutputFileSize()) {  // 当期output文件足够大
         status = FinishCompactionOutputFile(compact, input);
         if (!status.ok()) {
           break;
@@ -1017,14 +1022,15 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
     status = Status::IOError("Deleting DB during compaction");
   }
   if (status.ok() && compact->builder != NULL) {
-    status = FinishCompactionOutputFile(compact, input);
+    status = FinishCompactionOutputFile(compact, input); // Finish末尾残留的output
   }
   if (status.ok()) {
-    status = input->status();
+    status = input->status();  // 迭代器是否有出错
   }
   delete input;
   input = NULL;
 
+  // 统计信息 本次compact时长、读写了多少字节
   CompactionStats stats;
   stats.micros = env_->NowMicros() - start_micros - imm_micros;
   for (int which = 0; which < 2; which++) {
