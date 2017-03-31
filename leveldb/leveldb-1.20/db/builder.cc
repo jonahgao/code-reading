@@ -14,6 +14,7 @@
 
 namespace leveldb {
 
+// 迭代memtable，写入文件
 Status BuildTable(const std::string& dbname,
                   Env* env,
                   const Options& options,
@@ -33,18 +34,18 @@ Status BuildTable(const std::string& dbname,
     }
 
     TableBuilder* builder = new TableBuilder(options, file);
-    meta->smallest.DecodeFrom(iter->key());
+    meta->smallest.DecodeFrom(iter->key()); // 更新meta smallest 字段
     for (; iter->Valid(); iter->Next()) {
       Slice key = iter->key();
-      meta->largest.DecodeFrom(key);
-      builder->Add(key, iter->value());
+      meta->largest.DecodeFrom(key); // 更新meta largest字段
+      builder->Add(key, iter->value()); // 写入KV
     }
 
     // Finish and check for builder errors
     if (s.ok()) {
       s = builder->Finish();
       if (s.ok()) {
-        meta->file_size = builder->FileSize();
+        meta->file_size = builder->FileSize(); // 更新meta里的file_size字段
         assert(meta->file_size > 0);
       }
     } else {
@@ -53,6 +54,7 @@ Status BuildTable(const std::string& dbname,
     delete builder;
 
     // Finish and check for file errors
+    // sync and close
     if (s.ok()) {
       s = file->Sync();
     }
@@ -64,6 +66,7 @@ Status BuildTable(const std::string& dbname,
 
     if (s.ok()) {
       // Verify that the table is usable
+      // 验证这个新写完的文件是否可用（可以被打开读取）
       Iterator* it = table_cache->NewIterator(ReadOptions(),
                                               meta->number,
                                               meta->file_size);
