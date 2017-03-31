@@ -127,7 +127,7 @@ bool SomeFileOverlapsRange(
     const Slice* smallest_user_key,
     const Slice* largest_user_key) {
   const Comparator* ucmp = icmp.user_comparator();
-  if (!disjoint_sorted_files) {
+  if (!disjoint_sorted_files) {  // 互相重叠 例如L0
     // Need to check against all files
     for (size_t i = 0; i < files.size(); i++) {
       const FileMetaData* f = files[i];
@@ -497,6 +497,7 @@ void Version::Unref() {
   }
 }
 
+// 检查level层是否跟[smallest_ukey, largest_ukey]有重叠
 bool Version::OverlapInLevel(int level,
                              const Slice* smallest_user_key,
                              const Slice* largest_user_key) {
@@ -508,18 +509,23 @@ int Version::PickLevelForMemTableOutput(
     const Slice& smallest_user_key,
     const Slice& largest_user_key) {
   int level = 0;
+  // 跟L0层不重叠
+  // 如果跟L0层重叠则只能推到L0，因为Get的时候先Get低Level的，找到了就返回
   if (!OverlapInLevel(0, &smallest_user_key, &largest_user_key)) {
     // Push to next level if there is no overlap in next level,
     // and the #bytes overlapping in the level after that are limited.
     InternalKey start(smallest_user_key, kMaxSequenceNumber, kValueTypeForSeek);
     InternalKey limit(largest_user_key, 0, static_cast<ValueType>(0));
     std::vector<FileMetaData*> overlaps;
-    while (level < config::kMaxMemCompactLevel) {
-      if (OverlapInLevel(level + 1, &smallest_user_key, &largest_user_key)) {
+    while (level < config::kMaxMemCompactLevel) {   // 最高允许推到kMaxMemCompactLevel层
+      if (OverlapInLevel(level + 1, &smallest_user_key, &largest_user_key)) {  // 跟level+1层有重叠，break，推到level层
         break;
       }
       if (level + 2 < config::kNumLevels) {
         // Check that file does not overlap too many grandparent bytes.
+        // 如果跟level+2层重叠字节数太多，也break，即推到level层
+        // 不然推到level+1层的话，就会出现level+1层的该文件和level+2层重叠太多，
+        // 后期compact这个文件时就会牵涉太多，leveldb需要避免这种情况
         GetOverlappingInputs(level + 2, &start, &limit, &overlaps);
         const int64_t sum = TotalFileSize(overlaps);
         if (sum > MaxGrandParentOverlapBytes(vset_->options_)) {

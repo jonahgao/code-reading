@@ -490,7 +490,7 @@ Status DBImpl::RecoverLogFile(uint64_t log_number, bool last_log,
   return status;
 }
 
-// memtable->L0
+// memtable写入到sst table，添加到某一层
 // input: mem,base
 // output: edit
 Status DBImpl::WriteLevel0Table(MemTable* mem, VersionEdit* edit,
@@ -525,7 +525,7 @@ Status DBImpl::WriteLevel0Table(MemTable* mem, VersionEdit* edit,
   if (s.ok() && meta.file_size > 0) {
     const Slice min_user_key = meta.smallest.user_key();
     const Slice max_user_key = meta.largest.user_key();
-    if (base != NULL) { // 挑选把这个文件加入到哪一层, 尽可能地直接推入到更高层
+    if (base != NULL) { // 挑选把这个文件加入到哪一层, 尽可能地直接推入到较高层
       level = base->PickLevelForMemTableOutput(min_user_key, max_user_key);
     }
     edit->AddFile(level, meta.number, meta.file_size,
