@@ -573,6 +573,7 @@ void DBImpl::CompactMemTable() {
 }
 
 // 手动触发compaction，begin和end都是user_key
+// 选择每层跟user_key范围重叠的文件，然后按层依次执行compact
 void DBImpl::CompactRange(const Slice* begin, const Slice* end) {
   int max_level_with_files = 1;
   {
@@ -613,6 +614,7 @@ void DBImpl::TEST_CompactRange(int level, const Slice* begin,const Slice* end) {
   }
 
   MutexLock l(&mutex_);
+  // 判断manual.done是因为一层level的compact可能一次做不完（一次compact有参与文件总大小的限制）
   while (!manual.done && !shutting_down_.Acquire_Load() && bg_error_.ok()) {
     if (manual_compaction_ == NULL) {  // Idle 没有手动任务，就投入到后台执行
       manual_compaction_ = &manual;
@@ -707,9 +709,9 @@ void DBImpl::BackgroundCompaction() {
   if (is_manual) {   // 手动触发，compact某个key范围
     ManualCompaction* m = manual_compaction_;
     c = versions_->CompactRange(m->level, m->begin, m->end);
-    m->done = (c == NULL);
+    m->done = (c == NULL); // c==NULL 表示该层在[begin, end]的范围内已经没有需要compact的文件了，即结束，本次手动任务执行完成
     if (c != NULL) {
-      manual_end = c->input(0, c->num_input_files(0) - 1)->largest;
+      manual_end = c->input(0, c->num_input_files(0) - 1)->largest; // 本次compact范围的终止点，可以作为下次手动compact的起始
     }
     Log(options_.info_log,
         "Manual compaction at level-%d from %s .. %s; will stop at %s\n",
@@ -722,9 +724,13 @@ void DBImpl::BackgroundCompaction() {
   }
 
   Status status;
-  if (c == NULL) {
+  if (c == NULL) {  // 不需要compact，直接返回
     // Nothing to do
   } else if (!is_manual && c->IsTrivialMove()) {
+    // 直接可以简单地把要compact的文件推到下一层、不用读写合并的情况
+    // 必须是非手动compact(!is_manual)，不然该文件就无法参与手动compact
+    // 因为手动compact是先选择好每层的文件，再依次按层来进行的
+
     // Move file to next level
     assert(c->num_input_files(0) == 1);
     FileMetaData* f = c->input(0, 0);
@@ -742,7 +748,7 @@ void DBImpl::BackgroundCompaction() {
         static_cast<unsigned long long>(f->file_size),
         status.ToString().c_str(),
         versions_->LevelSummary(&tmp));
-  } else {
+  } else {  // 执行compact
     CompactionState* compact = new CompactionState(c);
     status = DoCompactionWork(compact);
     if (!status.ok()) {
@@ -768,13 +774,16 @@ void DBImpl::BackgroundCompaction() {
     if (!status.ok()) {
       m->done = true;
     }
+
+    // 该层的手动compact没有完成
+    // 因为每次compact对参与的总文件大小有限制，可能一次compact不完
     if (!m->done) {
       // We only compacted part of the requested range.  Update *m
       // to the range that is left to be compacted.
       m->tmp_storage = manual_end;
-      m->begin = &m->tmp_storage;
+      m->begin = &m->tmp_storage; // 下次从manual_end开始
     }
-    manual_compaction_ = NULL;
+    manual_compaction_ = NULL; // manual_compaction_置为NULL，表示没有手动任务再执行，可以投放下一个手动任务
   }
 }
 

@@ -1322,6 +1322,7 @@ Iterator* VersionSet::MakeInputIterator(Compaction* c) {
   return result;
 }
 
+// 选择compact，是level级别的还是文件级别的， 或者不需要compact（返回NULL）
 Compaction* VersionSet::PickCompaction() {
   Compaction* c;
   int level;
@@ -1338,6 +1339,8 @@ Compaction* VersionSet::PickCompaction() {
     c = new Compaction(options_, level);
 
     // Pick the first file that comes after compact_pointer_[level]
+    // 选取largest比compact_pointer_[level]大的level层文件；如果compact_pointer_[level]为空，选该层第一个
+    // compact_pointer_[level]为上次compact哪个key了，这个选取会直接跳过该层已经compact的文件
     for (size_t i = 0; i < current_->files_[level].size(); i++) {
       FileMetaData* f = current_->files_[level][i];
       if (compact_pointer_[level].empty() ||
@@ -1346,11 +1349,12 @@ Compaction* VersionSet::PickCompaction() {
         break;
       }
     }
+    // 未选取到，则从头开始。（可能情况：上次该层全部compact一遍了，现在又轮到该层了）
     if (c->inputs_[0].empty()) {
       // Wrap-around to the beginning of the key space
       c->inputs_[0].push_back(current_->files_[level][0]);
     }
-  } else if (seek_compaction) {
+  } else if (seek_compaction) { // 文件级别
     level = current_->file_to_compact_level_;
     c = new Compaction(options_, level);
     c->inputs_[0].push_back(current_->file_to_compact_);
@@ -1362,6 +1366,7 @@ Compaction* VersionSet::PickCompaction() {
   c->input_version_->Ref();
 
   // Files in level 0 may overlap each other, so pick up all overlapping ones
+  // 如果是level0,则input可能不止是一个，因为level0相互重叠
   if (level == 0) {
     InternalKey smallest, largest;
     GetRange(c->inputs_[0], &smallest, &largest);
@@ -1432,7 +1437,7 @@ void VersionSet::SetupOtherInputs(Compaction* c) {
 
   // Compute the set of grandparent files that overlap this compaction
   // (parent == level+1; grandparent == level+2)
-  // 计算L+2层跟input有重叠的文件
+  // 计算L+2层跟input有重叠的文件，用于compact时限制单个output文件跟L+2层的重叠
   if (level + 2 < config::kNumLevels) {
     current_->GetOverlappingInputs(level + 2, &all_start, &all_limit,
                                    &c->grandparents_);
@@ -1449,7 +1454,7 @@ void VersionSet::SetupOtherInputs(Compaction* c) {
   // We update this immediately instead of waiting for the VersionEdit
   // to be applied so that if the compaction fails, we will try a different
   // key range next time.
-  // 每层进度更新为largest
+  // 针对level级别的compact：compact前先更新进度，即下一次compact会从largest以后的地方开始
   compact_pointer_[level] = largest.Encode().ToString();
   c->edit_.SetCompactPointer(level, largest);
 }
@@ -1508,6 +1513,8 @@ Compaction::~Compaction() {
   }
 }
 
+// compact的input L层只有一个文件，L+1层没有
+// 并且保证这个文件跟L+2层不会重叠太多（不然就会出现：在L+1层有个文件跟它的下一层重叠过多，以后compact它就牵涉太多）
 bool Compaction::IsTrivialMove() const {
   const VersionSet* vset = input_version_->vset_;
   // Avoid a move if there is lots of overlapping grandparent data.
