@@ -37,7 +37,7 @@ static int64_t ExpandedCompactionByteSizeLimit(const Options* options) {
   return 25 * TargetFileSize(options);
 }
 
-// 每层所有文件的总大小
+// 每层所有文件的总大小的理想值 以此值作为基准来判断某层是否不平衡需要comapct
 static double MaxBytesForLevel(const Options* options, int level) {
   // Note: the result for level zero is not really used since we set
   // the level-0 compaction threshold based on number of files.
@@ -396,7 +396,8 @@ Status Version::Get(const ReadOptions& options,
     for (uint32_t i = 0; i < num_files; ++i) {
       if (last_file_read != NULL && stats->seek_file == NULL) {
         // We have had more than one seek for this read.  Charge the 1st file.
-        // last_file_read不为空表示本次Get读取了超过一个以上的文件，标记第一个查找的文件，后续--allowed_seeks
+        // last_file_read不为空表示本次Get时读取了超过一个以上的文件，标记第一个查找的文件，后续减减它的allowed_seeks
+        // 比如在L层没找到，又找了L+1层的文件，这时L层那个就比较有可能需要compact
         stats->seek_file = last_file_read;
         stats->seek_file_level = last_file_read_level;
       }
