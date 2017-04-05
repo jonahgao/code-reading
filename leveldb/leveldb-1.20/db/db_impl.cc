@@ -586,6 +586,7 @@ void DBImpl::CompactRange(const Slice* begin, const Slice* end) {
     }
   }
   TEST_CompactMemTable(); // TODO(sanjay): Skip if memtable does not overlap
+  // 最多compact到max_level_with_files层，最多compact当前最大层-1，不会产生新层
   for (int level = 0; level < max_level_with_files; level++) {
     TEST_CompactRange(level, begin, end);
   }
@@ -1222,11 +1223,15 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
   w.done = false;
 
   MutexLock l(&mutex_);
-  writers_.push_back(&w);
+  writers_.push_back(&w); // 放入写队列
+
+  // 没完成且不是front时才等待
+  // 1. w.done为true，表示写完了自然不用等待，因为前面的写入操作时有可能合并多个batch把w给完成了
+  // 2. 自己是front，也不等，表示前面的都写完了，该自己执行写操作了
   while (!w.done && &w != writers_.front()) {
     w.cv.Wait();
   }
-  if (w.done) {
+  if (w.done) { // 被队列前面的写时合并一起写入了，直接返回
     return w.status;
   }
 
@@ -1244,7 +1249,9 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
     // and protects against concurrent loggers and concurrent writes
     // into mem_.
     {
+      // 写入log和memtable时解锁，这样其他写操作可以放入队列
       mutex_.Unlock();
+      // 一个WriteBatch一个log record，保证原子性
       status = log_->AddRecord(WriteBatchInternal::Contents(updates));
       bool sync_error = false;
       if (status.ok() && options.sync) {

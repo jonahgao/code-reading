@@ -13,6 +13,8 @@
   level级别的compact也是有可能分多步进行的，比如L0以外的每次L层只选一个文件   
   进度保存在`compact_pointer_`变量中，则进度会持久化到MANIFEST中
   
+  只有在该情况下会产生新的更大的level
+  
 - seek    
   这个是文件级别的compact    
   Get操作时更新、db Iterator迭代时采样    
@@ -29,6 +31,14 @@
   而且每层可能一次compact执行不完，需要多次。    
   因为一次手动compact有总文件太小限制(`MaxFileSizeForLevel`)
 
-### 切换output 写入新文件的时机
+### compact时切换output 写入新文件的时机
 - 当前文件的大小达到了max_file_size
 - 或者当前文件与L+2层重叠的字节数太多
+
+### 两种跳级的情况
+- compact memtable时  
+`PickLevelForMemTableOutput`时
+如果跟L0-LN都没重叠，就推入到LN，有`kMaxMemCompactLevel`的限制
+
+- 非手动compact L层时  
+如果是`IsTrivialMove()`就直接推到L+1层

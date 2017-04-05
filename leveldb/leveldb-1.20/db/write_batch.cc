@@ -96,14 +96,14 @@ void WriteBatchInternal::SetSequence(WriteBatch* b, SequenceNumber seq) {
 }
 
 void WriteBatch::Put(const Slice& key, const Slice& value) {
-  WriteBatchInternal::SetCount(this, WriteBatchInternal::Count(this) + 1);
+  WriteBatchInternal::SetCount(this, WriteBatchInternal::Count(this) + 1); // count + 1
   rep_.push_back(static_cast<char>(kTypeValue));
   PutLengthPrefixedSlice(&rep_, key);
   PutLengthPrefixedSlice(&rep_, value);
 }
 
 void WriteBatch::Delete(const Slice& key) {
-  WriteBatchInternal::SetCount(this, WriteBatchInternal::Count(this) + 1);
+  WriteBatchInternal::SetCount(this, WriteBatchInternal::Count(this) + 1); // count +1
   rep_.push_back(static_cast<char>(kTypeDeletion));
   PutLengthPrefixedSlice(&rep_, key);
 }
@@ -125,6 +125,7 @@ class MemTableInserter : public WriteBatch::Handler {
 };
 }  // namespace
 
+// 把batch中KV的写入memtable中, seq增大count（KV条目个数）
 Status WriteBatchInternal::InsertInto(const WriteBatch* b,
                                       MemTable* memtable) {
   MemTableInserter inserter;
@@ -133,11 +134,13 @@ Status WriteBatchInternal::InsertInto(const WriteBatch* b,
   return b->Iterate(&inserter);
 }
 
+// 设置batch的内容
 void WriteBatchInternal::SetContents(WriteBatch* b, const Slice& contents) {
   assert(contents.size() >= kHeader);
   b->rep_.assign(contents.data(), contents.size());
 }
 
+// 两个batch合并
 void WriteBatchInternal::Append(WriteBatch* dst, const WriteBatch* src) {
   SetCount(dst, Count(dst) + Count(src));
   assert(src->rep_.size() >= kHeader);
