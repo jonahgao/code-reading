@@ -350,6 +350,7 @@ Status Version::Get(const ReadOptions& options,
   // in an smaller level, later levels are irrelevant.
   std::vector<FileMetaData*> tmp;
   FileMetaData* tmp2;
+  // 从Level-0开始，按层一层一层查找，找到就返回
   for (int level = 0; level < config::kNumLevels; level++) {
     size_t num_files = files_[level].size();
     if (num_files == 0) continue;
@@ -361,7 +362,7 @@ Status Version::Get(const ReadOptions& options,
       // overlap user_key and process them in order from newest to oldest.
       // Level-0可能会有多个跟user_key有重叠的文件，按新到旧排序查找
       tmp.reserve(num_files);
-      for (uint32_t i = 0; i < num_files; i++) {
+      for (uint32_t i = 0; i < num_files; i++) { // 选取跟查找的key有重叠的level0文件
         FileMetaData* f = files[i];
         if (ucmp->Compare(user_key, f->smallest.user_key()) >= 0 &&
             ucmp->Compare(user_key, f->largest.user_key()) <= 0) {
@@ -370,7 +371,7 @@ Status Version::Get(const ReadOptions& options,
       }
       if (tmp.empty()) continue;
 
-      std::sort(tmp.begin(), tmp.end(), NewestFirst);
+      std::sort(tmp.begin(), tmp.end(), NewestFirst); // 按新旧（文件序号）排序
       files = &tmp[0];
       num_files = tmp.size();
     } else {

@@ -146,8 +146,8 @@ class DBImpl : public DB {
   uint32_t seed_;                // For sampling.
 
   // Queue of writers.
-  std::deque<Writer*> writers_;
-  WriteBatch* tmp_batch_;
+  std::deque<Writer*> writers_; // 写队列
+  WriteBatch* tmp_batch_; // 用于合并多个WriteBatch
 
   SnapshotList snapshots_;
 

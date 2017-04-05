@@ -38,7 +38,8 @@
 ### 两种跳级的情况
 - compact memtable时  
 `PickLevelForMemTableOutput`时
-如果跟L0-LN都没重叠，就推入到LN，有`kMaxMemCompactLevel`的限制
+如果跟L0-LN都没重叠，就推入到LN   
+有`kMaxMemCompactLevel`的限制（考虑重复写入某个key范围，放太高层会浪费空间，没办法很快compact掉低seq的）
 
 - 非手动compact L层时  
 如果是`IsTrivialMove()`就直接推到L+1层
