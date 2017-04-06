@@ -41,12 +41,12 @@ namespace {
 // are kept in a circular doubly linked list ordered by access time.
 struct LRUHandle {
   void* value;
-  void (*deleter)(const Slice&, void* value);
-  LRUHandle* next_hash;
-  LRUHandle* next;
-  LRUHandle* prev;
-  size_t charge;      // TODO(opt): Only allow uint32_t?
-  size_t key_length;
+  void (*deleter)(const Slice&, void* value); // 释放函数
+  LRUHandle* next_hash; // hashtable中冲突排解链的后继结点
+  LRUHandle* next;    // 双链表（LRU代表先后顺序的链表）的后继结点
+  LRUHandle* prev;    // 双链表（LRU代表先后顺序的链表）的前继结点
+  size_t charge;      // 该Handle会占据LRU空间的多大容量  TODO(opt): Only allow uint32_t?
+  size_t key_length;  // key长度
   bool in_cache;      // Whether entry is in the cache.
   uint32_t refs;      // References, including cache reference, if present.
   uint32_t hash;      // Hash of key(); used for fast sharding and comparisons
@@ -77,14 +77,15 @@ class HandleTable {
     return *FindPointer(key, hash);
   }
 
+  // 插入或替换，返回之前的旧数据
   LRUHandle* Insert(LRUHandle* h) {
     LRUHandle** ptr = FindPointer(h->key(), h->hash);
     LRUHandle* old = *ptr;
     h->next_hash = (old == NULL ? NULL : old->next_hash);
     *ptr = h;
-    if (old == NULL) {
+    if (old == NULL) { // 之前为NULL，代表是插入新的，非替换
       ++elems_;
-      if (elems_ > length_) {
+      if (elems_ > length_) { // 负载因子大于1, rehash
         // Since each cache entry is fairly large, we aim for a small
         // average linked list length (<= 1).
         Resize();
@@ -106,9 +107,9 @@ class HandleTable {
  private:
   // The table consists of an array of buckets where each bucket is
   // a linked list of cache entries that hash into the bucket.
-  uint32_t length_;
-  uint32_t elems_;
-  LRUHandle** list_;
+  uint32_t length_;  // 桶的个数
+  uint32_t elems_;   // 元素个树
+  LRUHandle** list_; // 桶数组，数组中的元素是排解冲突的单链表
 
   // Return a pointer to slot that points to a cache entry that
   // matches key/hash.  If there is no such cache entry, return a
@@ -124,11 +125,11 @@ class HandleTable {
 
   void Resize() {
     uint32_t new_length = 4;
-    while (new_length < elems_) {
+    while (new_length < elems_) { // 桶的个数都是2的倍数
       new_length *= 2;
     }
     LRUHandle** new_list = new LRUHandle*[new_length];
-    memset(new_list, 0, sizeof(new_list[0]) * new_length);
+    memset(new_list, 0, sizeof(new_list[0]) * new_length); // 初始化，每个桶都是NULL
     uint32_t count = 0;
     for (uint32_t i = 0; i < length_; i++) {
       LRUHandle* h = list_[i];
@@ -137,7 +138,7 @@ class HandleTable {
         uint32_t hash = h->hash;
         LRUHandle** ptr = &new_list[hash & (new_length - 1)];
         h->next_hash = *ptr;
-        *ptr = h;
+        *ptr = h; // 插入到排解链的头
         h = next;
         count++;
       }
@@ -183,11 +184,13 @@ class LRUCache {
 
   // mutex_ protects the following state.
   mutable port::Mutex mutex_;
-  size_t usage_;
+  size_t usage_;  // 已使用的容量
 
   // Dummy head of LRU list.
   // lru.prev is newest entry, lru.next is oldest entry.
   // Entries have refs==1 and in_cache==true.
+  // LRU代表新旧顺序的链表的虚拟哨兵节点
+  // lru.prev(表尾)是最新的Handle，lru.next(表头)是最旧的Handle
   LRUHandle lru_;
 
   // Dummy head of in-use list.

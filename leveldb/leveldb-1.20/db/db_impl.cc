@@ -82,11 +82,14 @@ struct DBImpl::CompactionState {
 };
 
 // Fix user-supplied options to be reasonable
+// 确保*ptr值在[minvalue, maxvalue]的合理范围内
 template <class T,class V>
 static void ClipToRange(T* ptr, V minvalue, V maxvalue) {
   if (static_cast<V>(*ptr) > maxvalue) *ptr = maxvalue;
   if (static_cast<V>(*ptr) < minvalue) *ptr = minvalue;
 }
+
+// 审查修正用户指定的Options
 Options SanitizeOptions(const std::string& dbname,
                         const InternalKeyComparator* icmp,
                         const InternalFilterPolicy* ipolicy,
@@ -94,11 +97,11 @@ Options SanitizeOptions(const std::string& dbname,
   Options result = src;
   result.comparator = icmp;
   result.filter_policy = (src.filter_policy != NULL) ? ipolicy : NULL;
-  ClipToRange(&result.max_open_files,    64 + kNumNonTableCacheFiles, 50000);
-  ClipToRange(&result.write_buffer_size, 64<<10,                      1<<30);
-  ClipToRange(&result.max_file_size,     1<<20,                       1<<30);
-  ClipToRange(&result.block_size,        1<<10,                       4<<20);
-  if (result.info_log == NULL) {
+  ClipToRange(&result.max_open_files,    64 + kNumNonTableCacheFiles, 50000); // max_open_files: 最小74，最大50000
+  ClipToRange(&result.write_buffer_size, 64<<10,                      1<<30); // write_buffer_size: 最小64M，最大1G
+  ClipToRange(&result.max_file_size,     1<<20,                       1<<30); // max_file_size: 最小1M，最大1G
+  ClipToRange(&result.block_size,        1<<10,                       4<<20); // block_size: 最小1K，最大4M
+  if (result.info_log == NULL) { // 如果用户没指定logger，提供一个默认的
     // Open a log file in the same directory as the db
     src.env->CreateDir(dbname);  // In case it does not exist
     src.env->RenameFile(InfoLogFileName(dbname), OldInfoLogFileName(dbname));
@@ -108,7 +111,7 @@ Options SanitizeOptions(const std::string& dbname,
       result.info_log = NULL;
     }
   }
-  if (result.block_cache == NULL) {
+  if (result.block_cache == NULL) { // 如果没有指定block_cache，默认指定一个大小为8M的
     result.block_cache = NewLRUCache(8 << 20);
   }
   return result;
