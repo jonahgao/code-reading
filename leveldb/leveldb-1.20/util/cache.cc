@@ -43,14 +43,14 @@ struct LRUHandle {
   void* value;
   void (*deleter)(const Slice&, void* value); // 释放函数
   LRUHandle* next_hash; // hashtable中冲突排解链的后继结点
-  LRUHandle* next;    // 双链表（LRU代表先后顺序的链表）的后继结点
-  LRUHandle* prev;    // 双链表（LRU代表先后顺序的链表）的前继结点
+  LRUHandle* next;    // 双链表（LRU代表新旧次序的链表）的后继结点
+  LRUHandle* prev;    // 双链表（LRU代表新旧次序的链表）的前继结点
   size_t charge;      // 该Handle会占据LRU空间的多大容量  TODO(opt): Only allow uint32_t?
   size_t key_length;  // key长度
   bool in_cache;      // Whether entry is in the cache.
   uint32_t refs;      // References, including cache reference, if present.
   uint32_t hash;      // Hash of key(); used for fast sharding and comparisons
-  char key_data[1];   // Beginning of key
+  char key_data[1];   // Beginning of key 变长数据的特殊处理，放到最后，且分配LRUHandle的同时也可以同时分配key_data空间
 
   Slice key() const {
     // For cheaper lookups, we allow a temporary Handle object
@@ -195,6 +195,7 @@ class LRUCache {
 
   // Dummy head of in-use list.
   // Entries are in use by clients, and have refs >= 2 and in_cache==true.
+  // 正在被外部使用的条目
   LRUHandle in_use_;
 
   HandleTable table_;
@@ -221,6 +222,8 @@ LRUCache::~LRUCache() {
   }
 }
 
+// 如果之前的引用计数为1,表示第一次被外部使用, 就从lru_移动到in_use_
+// 引用计数+1
 void LRUCache::Ref(LRUHandle* e) {
   if (e->refs == 1 && e->in_cache) {  // If on lru_ list, move to in_use_ list.
     LRU_Remove(e);
@@ -229,6 +232,8 @@ void LRUCache::Ref(LRUHandle* e) {
   e->refs++;
 }
 
+// 如果引用计数为0, 调用 deleter
+// 如果引用计数为1, 表示只有LRUCache的引用，外部没有在使用，从 in_use_移动到lru_中
 void LRUCache::Unref(LRUHandle* e) {
   assert(e->refs > 0);
   e->refs--;
@@ -242,11 +247,13 @@ void LRUCache::Unref(LRUHandle* e) {
   }
 }
 
+// 从链表中删除
 void LRUCache::LRU_Remove(LRUHandle* e) {
   e->next->prev = e->prev;
   e->prev->next = e->next;
 }
 
+// 插入到list前面
 void LRUCache::LRU_Append(LRUHandle* list, LRUHandle* e) {
   // Make "e" newest entry by inserting just before *list
   e->next = list;
@@ -255,6 +262,7 @@ void LRUCache::LRU_Append(LRUHandle* list, LRUHandle* e) {
   e->next->prev = e;
 }
 
+// 查找，如果存在，增加引用计数，如果是首次被外部引用（之前的ref为1）则移动到in_use_链表中
 Cache::Handle* LRUCache::Lookup(const Slice& key, uint32_t hash) {
   MutexLock l(&mutex_);
   LRUHandle* e = table_.Lookup(key, hash);
@@ -264,11 +272,13 @@ Cache::Handle* LRUCache::Lookup(const Slice& key, uint32_t hash) {
   return reinterpret_cast<Cache::Handle*>(e);
 }
 
+// 外部释放Handle 如果引用计数减为0, 调用deleter；为1,表示没有外部引用，从in_use_移回lru_链表中
 void LRUCache::Release(Cache::Handle* handle) {
   MutexLock l(&mutex_);
   Unref(reinterpret_cast<LRUHandle*>(handle));
 }
 
+// 插入 线程安全（加锁）
 Cache::Handle* LRUCache::Insert(
     const Slice& key, uint32_t hash, void* value, size_t charge,
     void (*deleter)(const Slice& key, void* value)) {
@@ -288,13 +298,15 @@ Cache::Handle* LRUCache::Insert(
   if (capacity_ > 0) {
     e->refs++;  // for the cache's reference.
     e->in_cache = true;
-    LRU_Append(&in_use_, e);
-    usage_ += charge;
-    FinishErase(table_.Insert(e));
+    LRU_Append(&in_use_, e); // 插入到in_use_链表中
+    usage_ += charge;   // 更新usage
+    FinishErase(table_.Insert(e));  // 插入到hashtable中，如果之前已经存在key相同的条目，则从链表中删除释放旧的
   } // else don't cache.  (Tests use capacity_==0 to turn off caching.)
 
+  // 如果容量超出，只置换lru_中的（不置换in_use_中的）
+  // TODO: 如果in_use_中的太大超过capacity_怎么办?
   while (usage_ > capacity_ && lru_.next != &lru_) {
-    LRUHandle* old = lru_.next;
+    LRUHandle* old = lru_.next; // 表头是比较旧的
     assert(old->refs == 1);
     bool erased = FinishErase(table_.Remove(old->key(), old->hash));
     if (!erased) {  // to avoid unused variable when compiled NDEBUG
@@ -310,9 +322,9 @@ Cache::Handle* LRUCache::Insert(
 bool LRUCache::FinishErase(LRUHandle* e) {
   if (e != NULL) {
     assert(e->in_cache);
-    LRU_Remove(e);
-    e->in_cache = false;
-    usage_ -= e->charge;
+    LRU_Remove(e);   // 从链表删除
+    e->in_cache = false; // in_cache置为false
+    usage_ -= e->charge; // usage偿还
     Unref(e);
   }
   return e != NULL;
@@ -323,6 +335,7 @@ void LRUCache::Erase(const Slice& key, uint32_t hash) {
   FinishErase(table_.Remove(key, hash));
 }
 
+// 删除所有不正在被外部使用的条目
 void LRUCache::Prune() {
   MutexLock l(&mutex_);
   while (lru_.next != &lru_) {
@@ -338,6 +351,7 @@ void LRUCache::Prune() {
 static const int kNumShardBits = 4;
 static const int kNumShards = 1 << kNumShardBits;
 
+// 多个LRUCache（分片），按key hash路由到某个LRUCache，可以较少锁争用
 class ShardedLRUCache : public Cache {
  private:
   LRUCache shard_[kNumShards];
