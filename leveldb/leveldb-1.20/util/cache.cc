@@ -304,7 +304,8 @@ Cache::Handle* LRUCache::Insert(
   } // else don't cache.  (Tests use capacity_==0 to turn off caching.)
 
   // 如果容量超出，只置换lru_中的（不置换in_use_中的）
-  // TODO: 如果in_use_中的太大超过capacity_怎么办?
+  // 直到容量不超出，或者 lru_ 为空（都置换出去了）
+  // 所以极端情况下， TotalCharge()有可能大于capacity_（太多在in_use_中，不会被置换出去）
   while (usage_ > capacity_ && lru_.next != &lru_) {
     LRUHandle* old = lru_.next; // 表头是比较旧的
     assert(old->refs == 1);
