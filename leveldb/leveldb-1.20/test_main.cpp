@@ -43,6 +43,7 @@ void testLRU() {
 
 int main() {
     testLRU();
+    return 0;
 
     DB *db = nullptr;
     Options ops;
