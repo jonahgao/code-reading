@@ -530,7 +530,7 @@ build_crcutil() {
   ./autogen.sh
 
   CFLAGS="$EXTRA_CFLAGS" \
-    CXXFLAGS="$EXTRA_CXXFLAGS" \
+    CXXFLAGS="$EXTRA_CXXFLAGS -DCRCUTIL_FORCE_ASM_CRC32C" \
     LDFLAGS="$EXTRA_LDFLAGS" \
     LIBS="$EXTRA_LIBS" \
     ./configure \
