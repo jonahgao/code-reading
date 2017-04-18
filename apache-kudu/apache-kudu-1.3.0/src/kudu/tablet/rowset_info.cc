@@ -134,6 +134,9 @@ double StringFractionInRange(const RowSetInfo* rsi,
 // each rowset by the rowset's size (assumes distribution of rows is somewhat
 // uniform).
 // Requires: [prev, next] contained in each rowset in "active"
+// 基于datasize计算区间[prev, next]的width
+// 算法：计算区间占每个包含它的rowset的比例(根据key space)，然后这个比例乘以当前rowset的大小，算出一个width
+//       最后把多个width累加
 double WidthByDataSize(const Slice& prev, const Slice& next,
                        const unordered_map<RowSet*, RowSetInfo*>& active) {
   double weight = 0;
@@ -171,6 +174,9 @@ void RowSetInfo::Collect(const RowSetTree& tree, vector<RowSetInfo>* rsvec) {
   }
 }
 
+// 返回结果
+// min_key: 维护了按起始端点排序的各个rowset的RowsetInfo
+// max_key: 维护了按结束端点排序的各个rowset的RowsetInfo
 void RowSetInfo::CollectOrdered(const RowSetTree& tree,
                                 vector<RowSetInfo>* min_key,
                                 vector<RowSetInfo>* max_key) {
@@ -194,8 +200,9 @@ void RowSetInfo::CollectOrdered(const RowSetTree& tree,
   // The algorithm keeps track of its state - a "sliding window"
   // across the keyspace - by maintaining the previous key and current
   // value of the total width traversed over the intervals.
+  // 滑动窗口[prev, next]，是整个key空间不可再分割的最小空间（中间没有其他endpoint）
   Slice prev;
-  unordered_map<RowSet*, RowSetInfo*> active;
+  unordered_map<RowSet*, RowSetInfo*> active; // active维护了包含滑动窗口的rowset
   double total_width = 0.0f;
 
   // We need to filter out the rowsets that aren't available before we process the endpoints,
@@ -210,13 +217,15 @@ void RowSetInfo::CollectOrdered(const RowSetTree& tree,
 
   RowSetTree available_rs_tree;
   available_rs_tree.Reset(available_rowsets);
+  // 遍历所有endpoint（已有序），生成一个个滑动窗口
   for (const RowSetTree::RSEndpoint& rse :
                 available_rs_tree.key_endpoints()) {
     RowSet* rs = rse.rowset_;
     const Slice& next = rse.slice_;
-    double interval_width = WidthByDataSize(prev, next, active);
+    double interval_width = WidthByDataSize(prev, next, active); // 计算滑动窗口的区间宽度(width)
 
     // Increment active rowsets in min_key by the interval_width.
+    // 更新active中rowset的cdf_max_key_(整个区间的最新宽度）
     for (const auto& rs_rsi : active) {
       RowSetInfo& cdf_rs = *rs_rsi.second;
       cdf_rs.cdf_max_key_ += interval_width;
@@ -227,11 +236,12 @@ void RowSetInfo::CollectOrdered(const RowSetTree& tree,
     prev = next;
 
     // Add/remove current RowSetInfo
+    // 如果端点是START，把端点对应的rowset加入active
     if (rse.endpoint_ == RowSetTree::START) {
-      min_key->push_back(RowSetInfo(rs, total_width));
+      min_key->push_back(RowSetInfo(rs, total_width)); //
       // Store reference from vector. This is safe b/c of reserve() above.
       active.insert(std::make_pair(rs, &min_key->back()));
-    } else if (rse.endpoint_ == RowSetTree::STOP) {
+    } else if (rse.endpoint_ == RowSetTree::STOP) { // 端点是STOP，从端点对应的从active中删除
       // If not in active set, then STOP before START in endpoint tree
       RowSetInfo* cdf_rs = CHECK_NOTNULL(active[rs]);
       CHECK_EQ(cdf_rs->rowset(), rs) << "Inconsistent key interval tree.";
@@ -263,6 +273,7 @@ RowSetInfo::RowSetInfo(RowSet* rs, double init_cdf)
   has_bounds_ = rs->GetBounds(&min_key_, &max_key_).ok();
 }
 
+// 最终的cdf_key还要除以整个keyspace的width
 void RowSetInfo::FinalizeCDFVector(vector<RowSetInfo>* vec,
                                  double quot) {
   if (quot == 0) return;
