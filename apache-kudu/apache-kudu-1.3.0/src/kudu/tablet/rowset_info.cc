@@ -90,6 +90,7 @@ void DCheckCommonPrefix(const Slice& min, const Slice& imin,
     << "\t" << KUDU_REDACT(imin.ToDebugString());
 }
 
+// 字串中->int，从start处算起
 uint64_t SliceTailToInt(const Slice& slice, int start) {
   uint64_t ret = 0;
   DCHECK_GE(start, 0);
@@ -101,6 +102,7 @@ uint64_t SliceTailToInt(const Slice& slice, int start) {
 
 // Finds fraction (imin, imax) takes up of rs->GetBounds().
 // Requires that (imin, imax) is contained in rs->GetBounds().
+// 计算区间[imin, imax]在rowset区间中占的比例
 double StringFractionInRange(const RowSetInfo* rsi,
                              const Slice& imin,
                              const Slice& imax) {

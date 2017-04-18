@@ -49,17 +49,20 @@ class RowSetTree {
   // An RSEndpoint is a POD which associates a rowset, an EndpointType
   // (either the START or STOP of an interval), and the key at which the
   // endpoint is located.
+  // 区间端点的类型：起始或者结束
   enum EndpointType {
     START,
     STOP
   };
+
+  // 区间端点
   struct RSEndpoint {
     RSEndpoint(RowSet *rowset, EndpointType endpoint, Slice slice)
         : rowset_(rowset), endpoint_(endpoint), slice_(std::move(slice)) {}
 
-    RowSet* rowset_;
-    enum EndpointType endpoint_;
-    Slice slice_;
+    RowSet* rowset_; // 属于哪个rowset
+    enum EndpointType endpoint_; // 类型，是起始还是结束
+    Slice slice_;  // 值
   };
 
   RowSetTree();
@@ -70,9 +73,11 @@ class RowSetTree {
   //
   // The returned pointers are guaranteed to be valid at least until this
   // RowSetTree object is Reset().
+  // 查找跟某个key有重叠的rowset
   void FindRowSetsWithKeyInRange(const Slice &encoded_key,
                                  std::vector<RowSet *> *rowsets) const;
 
+  // 查找跟某个区间[lower_bound, upper_bound]有重叠的rowset
   void FindRowSetsIntersectingInterval(const Slice &lower_bound,
                                        const Slice &upper_bound,
                                        std::vector<RowSet *> *rowsets) const;
@@ -91,20 +96,20 @@ class RowSetTree {
  private:
   // Interval tree of the rowsets. Used to efficiently find rowsets which might contain
   // a probe row.
-  gscoped_ptr<IntervalTree<RowSetIntervalTraits> > tree_;
+  gscoped_ptr<IntervalTree<RowSetIntervalTraits> > tree_; // 加速查询的区间树
 
   // Ordered map of all the interval endpoints, holding the implicit contiguous
   // intervals
   // TODO map to usage statistics as well. See KUDU-???
-  std::vector<RSEndpoint> key_endpoints_;
+  std::vector<RSEndpoint> key_endpoints_; // 区间所有的端点，排过序的
 
   // Container for all of the entries in tree_. IntervalTree does
   // not itself manage memory, so this provides a simple way to enumerate
   // all the entry structs and free them in the destructor.
-  std::vector<RowSetWithBounds *> entries_;
+  std::vector<RowSetWithBounds *> entries_; // 所有rowset，带边界的，跟区间树里的一致，不包括memrowset
 
   // All of the rowsets which were put in this RowSetTree.
-  RowSetVector all_rowsets_;
+  RowSetVector all_rowsets_;  // 所有rowset
 
   // The DiskRowSets in this RowSetTree, keyed by their id.
   std::unordered_map<int64_t, RowSet*> drs_by_id_;
@@ -114,7 +119,7 @@ class RowSetTree {
   //
   // These have to be consulted for every access, so are not
   // stored in the interval tree.
-  RowSetVector unbounded_rowsets_;
+  RowSetVector unbounded_rowsets_; // 边界还没确定下来的rowset（memrowset，因为它们还在更新）
 
   bool initted_;
 };

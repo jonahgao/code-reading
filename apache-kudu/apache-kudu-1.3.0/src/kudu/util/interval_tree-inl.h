@@ -164,19 +164,19 @@ class ITNode {
   static bool SortByDescRight(const interval_type &a, const interval_type &b);
 
   // Partition point of this node.
-  point_type split_point_;
+  point_type split_point_;  // 全部区间的中点
 
   // Those nodes that overlap with split_point_, in ascending order by their left side.
-  IntervalVector overlapping_by_asc_left_;
+  IntervalVector overlapping_by_asc_left_;    // 跟中点有重叠的区间，按左端点升序排列
 
   // Those nodes that overlap with split_point_, in descending order by their right side.
-  IntervalVector overlapping_by_desc_right_;
+  IntervalVector overlapping_by_desc_right_;  // 跟中点有重叠的区间，按右端点降序排列
 
   // Tree node for intervals fully left of split_point_, or NULL.
-  ITNode *left_;
+  ITNode *left_;  // 完全在中点左侧的区间
 
   // Tree node for intervals fully right of split_point_, or NULL.
-  ITNode *right_;
+  ITNode *right_; // 完全在中点右侧的区间
 
   DISALLOW_COPY_AND_ASSIGN(ITNode);
 };
