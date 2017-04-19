@@ -177,6 +177,7 @@ void RowSetInfo::Collect(const RowSetTree& tree, vector<RowSetInfo>* rsvec) {
 // 返回结果
 // min_key: 维护了按起始端点排序的各个rowset的RowsetInfo
 // max_key: 维护了按结束端点排序的各个rowset的RowsetInfo
+// 对于同一个rowset在min_key里的RowsetInfo和在max_key里的RowsetInfo是相同的
 void RowSetInfo::CollectOrdered(const RowSetTree& tree,
                                 vector<RowSetInfo>* min_key,
                                 vector<RowSetInfo>* max_key) {
@@ -227,7 +228,7 @@ void RowSetInfo::CollectOrdered(const RowSetTree& tree,
     // Increment active rowsets in min_key by the interval_width.
     // 更新active中rowset的cdf_max_key_(整个区间的最新宽度）
     for (const auto& rs_rsi : active) {
-      RowSetInfo& cdf_rs = *rs_rsi.second;
+      RowSetInfo& cdf_rs = *rs_rsi.second; // 引用，所以min_key里的对应rowset的RowsetInfo也会被更新
       cdf_rs.cdf_max_key_ += interval_width;
     }
 

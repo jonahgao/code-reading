@@ -145,6 +145,8 @@ struct DerefCompare {
 // by the density of the input elements. We need only maintain enough elements
 // to satisfy the budget, making this logarithmic in the budget and linear
 // in the number of elements added.
+// 通过贪心算法解决连续背包问题
+// 确定对应的0-1背包问题最优解的上界（连续背包问题的最优解）以及下界（连续背包问题最优解除去最后的分数部分）
 class BoundCalculator {
  public:
   explicit BoundCalculator(int max_weight)
@@ -266,6 +268,7 @@ void BudgetedCompactionPolicy::RunApproximation(
       double lower = bounds.first - union_width * kSupportAdjust;
       double upper = bounds.second - union_width * kSupportAdjust;
       best_upper = std::max(upper, best_upper);
+      // 按lower算best solution
       if (lower > best_solution->value) {
         vector<const RowSetInfo*> approx_solution;
         bound_calc.GetLowerBoundSolution(&approx_solution);
@@ -300,6 +303,7 @@ void BudgetedCompactionPolicy::RunExact(
     // Here we also build in the approximation ratio as slop: the upper bound doesn't need
     // to just be better than the current solution, but needs to be better by at least
     // the approximation ratio before we bother looking for it.
+    // 如果以cc_a为起点的近似最优解上界 < 当前最优解 * 近似一个系数，则跳过它（它比较不可能是一个最优解）
     if (upper_bound < best_solution->value * FLAGS_compaction_approximation_ratio) {
       continue;
     }
@@ -307,6 +311,7 @@ void BudgetedCompactionPolicy::RunExact(
     inrange_candidates.clear();
     double ab_min = cc_a.cdf_min_key();
     double ab_max = cc_a.cdf_max_key();
+    // 选取大于cc_a.ab_min的集合
     for (const RowSetInfo& cc_b : asc_max_key) {
       if (cc_b.cdf_min_key() < ab_min) {
         // Would expand support to the left.
