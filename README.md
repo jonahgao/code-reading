@@ -4,8 +4,10 @@
 - redis
 - leveldb
 - rocksdb
+- kudu
 
 
 ## TODO
 - folly
+- boltdb
 - couchdb
