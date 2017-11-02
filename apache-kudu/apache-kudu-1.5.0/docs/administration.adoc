@@ -1,0 +1,622 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+[[administration]]
+= Apache Kudu Administration
+
+:author: Kudu Team
+:imagesdir: ./images
+:icons: font
+:toc: left
+:toclevels: 3
+:doctype: book
+:backend: html5
+:sectlinks:
+:experimental:
+
+NOTE: Kudu is easier to manage with link:http://www.cloudera.com/content/www/en-us/products/cloudera-manager.html[Cloudera Manager]
+than in a standalone installation. See Cloudera's
+link:http://www.cloudera.com/documentation/kudu/latest/topics/kudu_installation.html[Kudu documentation]
+for more details about using Kudu with Cloudera Manager.
+
+== Starting and Stopping Kudu Processes
+
+NOTE: These instructions are relevant only when Kudu is installed using operating system packages
+(e.g. `rpm` or `deb`).
+
+include::installation.adoc[tags=start_stop]
+
+== Kudu Web Interfaces
+
+Kudu tablet servers and masters expose useful operational information on a built-in web interface,
+
+=== Kudu Master Web Interface
+
+Kudu master processes serve their web interface on port 8051. The interface exposes several pages
+with information about the cluster state:
+
+- A list of tablet servers, their host names, and the time of their last heartbeat.
+- A list of tables, including schema and tablet location information for each.
+- SQL code which you can paste into Impala Shell to add an existing table to Impala's list of known data sources.
+
+=== Kudu Tablet Server Web Interface
+
+Each tablet server serves a web interface on port 8050. The interface exposes information
+about each tablet hosted on the server, its current state, and debugging information
+about maintenance background operations.
+
+=== Common Web Interface Pages
+
+Both Kudu masters and tablet servers expose a common set of information via their web interfaces:
+
+- HTTP access to server logs.
+- an `/rpcz` endpoint which lists currently running RPCs via JSON.
+- pages giving an overview and detailed information on the memory usage of different
+  components of the process.
+- information on the current set of configuration flags.
+- information on the currently running threads and their resource consumption.
+- a JSON endpoint exposing metrics about the server.
+- information on the deployed version number of the daemon.
+
+These interfaces are linked from the landing page of each daemon's web UI.
+
+== Kudu Metrics
+
+Kudu daemons expose a large number of metrics. Some metrics are associated with an entire
+server process, whereas others are associated with a particular tablet replica.
+
+=== Listing available metrics
+
+The full set of available metrics for a Kudu server can be dumped via a special command
+line flag:
+
+[source,bash]
+----
+$ kudu-tserver --dump_metrics_json
+$ kudu-master --dump_metrics_json
+----
+
+This will output a large JSON document. Each metric indicates its name, label, description,
+units, and type. Because the output is JSON-formatted, this information can easily be
+parsed and fed into other tooling which collects metrics from Kudu servers.
+
+=== Collecting metrics via HTTP
+
+Metrics can be collected from a server process via its HTTP interface by visiting
+`/metrics`. The output of this page is JSON for easy parsing by monitoring services.
+This endpoint accepts several `GET` parameters in its query string:
+
+- `/metrics?metrics=<substring1>,<substring2>,...` - limits the returned metrics to those which contain
+at least one of the provided substrings. The substrings also match entity names, so this
+may be used to collect metrics for a specific tablet.
+
+- `/metrics?include_schema=1` - includes metrics schema information such as unit, description,
+and label in the JSON output. This information is typically elided to save space.
+
+- `/metrics?compact=1` - eliminates unnecessary whitespace from the resulting JSON, which can decrease
+bandwidth when fetching this page from a remote host.
+
+- `/metrics?include_raw_histograms=1` - include the raw buckets and values for histogram metrics,
+enabling accurate aggregation of percentile metrics over time and across hosts.
+
+For example:
+
+[source,bash]
+----
+$ curl -s 'http://example-ts:8050/metrics?include_schema=1&metrics=connections_accepted'
+----
+
+[source,json]
+----
+[
+    {
+        "type": "server",
+        "id": "kudu.tabletserver",
+        "attributes": {},
+        "metrics": [
+            {
+                "name": "rpc_connections_accepted",
+                "label": "RPC Connections Accepted",
+                "type": "counter",
+                "unit": "connections",
+                "description": "Number of incoming TCP connections made to the RPC server",
+                "value": 92
+            }
+        ]
+    }
+]
+----
+
+[source,bash]
+----
+$ curl -s 'http://example-ts:8050/metrics?metrics=log_append_latency'
+----
+
+[source,json]
+----
+[
+    {
+        "type": "tablet",
+        "id": "c0ebf9fef1b847e2a83c7bd35c2056b1",
+        "attributes": {
+            "table_name": "lineitem",
+            "partition": "hash buckets: (55), range: [(<start>), (<end>))",
+            "table_id": ""
+        },
+        "metrics": [
+            {
+                "name": "log_append_latency",
+                "total_count": 7498,
+                "min": 4,
+                "mean": 69.3649,
+                "percentile_75": 29,
+                "percentile_95": 38,
+                "percentile_99": 45,
+                "percentile_99_9": 95,
+                "percentile_99_99": 167,
+                "max": 367244,
+                "total_sum": 520098
+            }
+        ]
+    }
+]
+----
+
+NOTE: All histograms and counters are measured since the server start time, and are not reset upon collection.
+
+=== Collecting metrics to a log
+
+Kudu may be configured to periodically dump all of its metrics to a local log file using the
+`--metrics_log_interval_ms` flag. Set this flag to the interval at which metrics should be written
+to a log file.
+
+The metrics log will be written to the same directory as the other Kudu log files, with the same
+naming format. After any metrics log file reaches 64MB uncompressed, the log will be rolled and
+the previous file will be gzip-compressed.
+
+The log file generated has three space-separated fields. The first field is the word
+`metrics`. The second field is the current timestamp in microseconds since the Unix epoch.
+The third is the current value of all metrics on the server, using a compact JSON encoding.
+The encoding is the same as the metrics fetched via HTTP described above.
+
+WARNING: Although metrics logging automatically rolls and compresses previous log files, it does
+not remove old ones. Since metrics logging can use significant amounts of disk space,
+consider setting up a system utility to monitor space in the log directory and archive or
+delete old segments.
+
+== Common Kudu workflows
+
+[[migrate_to_multi_master]]
+=== Migrating to Multiple Kudu Masters
+
+For high availability and to avoid a single point of failure, Kudu clusters should be created with
+multiple masters. Many Kudu clusters were created with just a single master, either for simplicity
+or because Kudu multi-master support was still experimental at the time. This workflow demonstrates
+how to migrate to a multi-master configuration.
+
+WARNING: The workflow is unsafe for adding new masters to an existing multi-master configuration.
+Do not use it for that purpose.
+
+WARNING: The workflow presupposes at least basic familiarity with Kudu configuration management. If
+using Cloudera Manager (CM), the workflow also presupposes familiarity with it.
+
+WARNING: All of the command line steps below should be executed as the Kudu UNIX user, typically
+`kudu`.
+
+==== Prepare for the migration
+
+. Establish a maintenance window (one hour should be sufficient). During this time the Kudu cluster
+  will be unavailable.
+
+. Decide how many masters to use. The number of masters should be odd. Three or five node master
+  configurations are recommended; they can tolerate one or two failures respectively.
+
+. Perform the following preparatory steps for the existing master:
+* Identify and record the directory where the master's data lives. If using Kudu system packages,
+  the default value is /var/lib/kudu/master, but it may be customized via the `fs_wal_dir` and
+  `fs_data_dirs` configuration parameter. Please note if you've set fs_data_dirs to some directories
+  other than the value of fs_wal_dir, it should be explicitly included in every command below where
+  fs_wal_dir is also included.
+* Identify and record the port the master is using for RPCs. The default port value is 7051, but it
+  may have been customized using the `rpc_bind_addresses` configuration parameter.
+* Identify the master's UUID. It can be fetched using the following command:
++
+[source,bash]
+----
+$ kudu fs dump uuid --fs_wal_dir=<master_data_dir> 2>/dev/null
+----
+master_data_dir:: existing master's previously recorded data directory
++
+[source,bash]
+Example::
++
+----
+$ kudu fs dump uuid --fs_wal_dir=/var/lib/kudu/master 2>/dev/null
+4aab798a69e94fab8d77069edff28ce0
+----
++
+* Optional: configure a DNS alias for the master. The alias could be a DNS cname (if the machine
+  already has an A record in DNS), an A record (if the machine is only known by its IP address),
+  or an alias in /etc/hosts. The alias should be an abstract representation of the master (e.g.
+  `master-1`).
++
+WARNING: Without DNS aliases it is not possible to recover from permanent master failures, and as
+such it is highly recommended.
++
+. Perform the following preparatory steps for each new master:
+* Choose an unused machine in the cluster. The master generates very little load so it can be
+  colocated with other data services or load-generating processes, though not with another Kudu
+  master from the same configuration.
+* Ensure Kudu is installed on the machine, either via system packages (in which case the `kudu` and
+  `kudu-master` packages should be installed), or via some other means.
+* Choose and record the directory where the master's data will live.
+* Choose and record the port the master should use for RPCs.
+* Optional: configure a DNS alias for the master (e.g. `master-2`, `master-3`, etc).
+
+==== Perform the migration
+
+. Stop all the Kudu processes in the entire cluster.
+
+. Format the data directory on each new master machine, and record the generated UUID. Use the
+  following command sequence:
++
+[source,bash]
+----
+$ kudu fs format --fs_wal_dir=<master_data_dir>
+$ kudu fs dump uuid --fs_wal_dir=<master_data_dir> 2>/dev/null
+----
++
+master_data_dir:: new master's previously recorded data directory
++
+[source,bash]
+Example::
++
+----
+$ kudu fs format --fs_wal_dir=/var/lib/kudu/master
+$ kudu fs dump uuid --fs_wal_dir=/var/lib/kudu/master 2>/dev/null
+f5624e05f40649b79a757629a69d061e
+----
+
+. If using CM, add the new Kudu master roles now, but do not start them.
+* If using DNS aliases, override the empty value of the `Master Address` parameter for each role
+  (including the existing master role) with that master's alias.
+* Add the port number (separated by a colon) if using a non-default RPC port value.
+
+. Rewrite the master's Raft configuration with the following command, executed on the existing
+  master machine:
++
+[source,bash]
+----
+$ kudu local_replica cmeta rewrite_raft_config --fs_wal_dir=<master_data_dir> <tablet_id> <all_masters>
+----
++
+master_data_dir:: existing master's previously recorded data directory
+tablet_id:: must be the string `00000000000000000000000000000000`
+all_masters:: space-separated list of masters, both new and existing. Each entry in the list must be
+  a string of the form `<uuid>:<hostname>:<port>`
+uuid::: master's previously recorded UUID
+hostname::: master's previously recorded hostname or alias
+port::: master's previously recorded RPC port number
++
+[source,bash]
+Example::
++
+----
+$ kudu local_replica cmeta rewrite_raft_config --fs_wal_dir=/var/lib/kudu/master 00000000000000000000000000000000 4aab798a69e94fab8d77069edff28ce0:master-1:7051 f5624e05f40649b79a757629a69d061e:master-2:7051 988d8ac6530f426cbe180be5ba52033d:master-3:7051
+----
+
+. Modify the value of the `master_addresses` configuration parameter for both existing master and new masters.
+  The new value must be a comma-separated list of all of the masters. Each entry is a string of the form `<hostname>:<port>`
+hostname:: master's previously recorded hostname or alias
+port:: master's previously recorded RPC port number
+
+. Start the existing master.
+
+. Copy the master data to each new master with the following command, executed on each new master
+  machine:
++
+[source,bash]
+----
+$ kudu local_replica copy_from_remote --fs_wal_dir=<master_data_dir> <tablet_id> <existing_master>
+----
++
+master_data_dir:: new master's previously recorded data directory
+tablet_id:: must be the string `00000000000000000000000000000000`
+existing_master:: RPC address of the existing master and must be a string of the form
+`<hostname>:<port>`
+hostname::: existing master's previously recorded hostname or alias
+port::: existing master's previously recorded RPC port number
++
+[source,bash]
+Example::
++
+----
+$ kudu local_replica copy_from_remote --fs_wal_dir=/var/lib/kudu/master 00000000000000000000000000000000 master-1:7051
+----
+
+. Start all of the new masters.
++
+WARNING: Skip the next step if using CM.
++
+. Modify the value of the `tserver_master_addrs` configuration parameter for each tablet server.
+  The new value must be a comma-separated list of masters where each entry is a string of the form
+  `<hostname>:<port>`
+hostname:: master's previously recorded hostname or alias
+port:: master's previously recorded RPC port number
+
+. Start all of the tablet servers.
+
+Congratulations, the cluster has now been migrated to multiple masters! To verify that all masters
+are working properly, consider performing the following sanity checks:
+
+* Using a browser, visit each master's web UI. Look at the /masters page. All of the masters should
+  be listed there with one master in the LEADER role and the others in the FOLLOWER role. The
+  contents of /masters on each master should be the same.
+
+* Run a Kudu system check (ksck) on the cluster using the `kudu` command line
+  tool. See <<ksck>> for more details.
+
+=== Recovering from a dead Kudu Master in a Multi-Master Deployment
+
+Kudu multi-master deployments function normally in the event of a master loss. However, it is
+important to replace the dead master; otherwise a second failure may lead to a loss of availability,
+depending on the number of available masters. This workflow describes how to replace the dead
+master.
+
+Due to https://issues.apache.org/jira/browse/KUDU-1620[KUDU-1620], it is not possible to perform
+this workflow without also restarting the live masters. As such, the workflow requires a
+maintenance window, albeit a brief one as masters generally restart quickly.
+
+WARNING: Kudu does not yet support Raft configuration changes for masters. As such, it is only
+possible to replace a master if the deployment was created with DNS aliases. See the
+<<migrate_to_multi_master,multi-master migration workflow>> for more details.
+
+WARNING: The workflow presupposes at least basic familiarity with Kudu configuration management. If
+using Cloudera Manager (CM), the workflow also presupposes familiarity with it.
+
+WARNING: All of the command line steps below should be executed as the Kudu UNIX user, typically
+`kudu`.
+
+==== Prepare for the recovery
+
+. Ensure that the dead master is well and truly dead. Take whatever steps needed to prevent it from
+  accidentally restarting; this can be quite dangerous for the cluster post-recovery.
+
+. Choose one of the remaining live masters to serve as a basis for recovery. The rest of this
+  workflow will refer to this master as the "reference" master.
+
+. Choose an unused machine in the cluster where the new master will live. The master generates very
+  little load so it can be colocated with other data services or load-generating processes, though
+  not with another Kudu master from the same configuration. The rest of this workflow will refer to
+  this master as the "replacement" master.
+
+. Perform the following preparatory steps for the replacement master:
+* Ensure Kudu is installed on the machine, either via system packages (in which case the `kudu` and
+  `kudu-master` packages should be installed), or via some other means.
+* Choose and record the directory where the master's data will live.
+
+. Perform the following preparatory steps for each live master:
+* Identify and record the directory where the master's data lives. If using Kudu system packages,
+  the default value is /var/lib/kudu/master, but it may be customized via the `fs_wal_dir` and
+  `fs_data_dirs` configuration parameter. Please note if you've set fs_data_dirs to some directories
+  other than the value of fs_wal_dir, it should be explicitly included in every command below where
+  fs_wal_dir is also included.
+* Identify and record the master's UUID. It can be fetched using the following command:
++
+[source,bash]
+----
+$ kudu fs dump uuid --fs_wal_dir=<master_data_dir> 2>/dev/null
+----
+master_data_dir:: live master's previously recorded data directory
++
+[source,bash]
+Example::
++
+----
+$ kudu fs dump uuid --fs_wal_dir=/var/lib/kudu/master 2>/dev/null
+80a82c4b8a9f4c819bab744927ad765c
+----
++
+. Perform the following preparatory steps for the reference master:
+* Identify and record the directory where the master's data lives. If using Kudu system packages,
+  the default value is /var/lib/kudu/master, but it may be customized via the `fs_wal_dir` and
+  `fs_data_dirs` configuration parameter. Please note if you've set fs_data_dirs to some directories
+  other than the value of fs_wal_dir, it should be explicitly included in every command below where
+  fs_wal_dir is also included.
+* Identify and record the UUIDs of every master in the cluster, using the following command:
++
+[source,bash]
+----
+$ kudu local_replica cmeta print_replica_uuids --fs_wal_dir=<master_data_dir> <tablet_id> 2>/dev/null
+----
+master_data_dir:: reference master's previously recorded data directory
+tablet_id:: must be the string `00000000000000000000000000000000`
++
+[source,bash]
+Example::
++
+----
+$ kudu local_replica cmeta print_replica_uuids --fs_wal_dir=/var/lib/kudu/master 00000000000000000000000000000000 2>/dev/null
+80a82c4b8a9f4c819bab744927ad765c 2a73eeee5d47413981d9a1c637cce170 1c3f3094256347528d02ec107466aef3
+----
++
+. Using the two previously-recorded lists of UUIDs (one for all live masters and one for all
+  masters), determine and record (by process of elimination) the UUID of the dead master.
+
+==== Perform the recovery
+
+. Format the data directory on the replacement master machine using the previously recorded
+  UUID of the dead master. Use the following command sequence:
++
+[source,bash]
+----
+$ kudu fs format --fs_wal_dir=<master_data_dir> --uuid=<uuid>
+----
++
+master_data_dir:: replacement master's previously recorded data directory
+uuid:: dead master's previously recorded UUID
++
+[source,bash]
+Example::
++
+----
+$ kudu fs format --fs_wal_dir=/var/lib/kudu/master --uuid=80a82c4b8a9f4c819bab744927ad765c
+----
++
+. Copy the master data to the replacement master with the following command:
++
+[source,bash]
+----
+$ kudu local_replica copy_from_remote --fs_wal_dir=<master_data_dir> <tablet_id> <reference_master>
+----
++
+master_data_dir:: replacement master's previously recorded data directory
+tablet_id:: must be the string `00000000000000000000000000000000`
+reference_master:: RPC address of the reference master and must be a string of the form
+`<hostname>:<port>`
+hostname::: reference master's previously recorded hostname or alias
+port::: reference master's previously recorded RPC port number
++
+[source,bash]
+Example::
++
+----
+$ kudu local_replica copy_from_remote --fs_wal_dir=/var/lib/kudu/master 00000000000000000000000000000000 master-2:7051
+----
++
+. If using CM, add the replacement Kudu master role now, but do not start it.
+* Override the empty value of the `Master Address` parameter for the new role with the replacement
+  master's alias.
+* Add the port number (separated by a colon) if using a non-default RPC port value.
+
+. Reconfigure the DNS alias for the dead master to point at the replacement master.
+
+. Start the replacement master.
+
+. Restart the existing live masters. This results in a brief availability outage, but it should
+  last only as long as it takes for the masters to come back up.
+
+Congratulations, the dead master has been replaced! To verify that all masters are working properly,
+consider performing the following sanity checks:
+
+* Using a browser, visit each master's web UI. Look at the /masters page. All of the masters should
+  be listed there with one master in the LEADER role and the others in the FOLLOWER role. The
+  contents of /masters on each master should be the same.
+
+* Run a Kudu system check (ksck) on the cluster using the `kudu` command line
+  tool. See <<ksck>> for more details.
+
+[[ksck]]
+=== Checking Cluster Health with `ksck`
+
+The `kudu` CLI includes a tool named `ksck` which can be used for checking
+cluster health and data integrity. `ksck` will identify issues such as
+under-replicated tablets, unreachable tablet servers, or tablets without a
+leader.
+
+`ksck` should be run from the command line, and requires the full list of master
+addresses to be specified:
+
+[source,bash]
+----
+$ kudu cluster ksck master-01.example.com,master-02.example.com,master-03.example.com
+----
+
+To see a full list of the options available with `ksck`, use the `--help` flag.
+If the cluster is healthy, `ksck` will print a success message, and return a
+zero (success) exit status.
+
+----
+Connected to the Master
+Fetched info from all 1 Tablet Servers
+Table IntegrationTestBigLinkedList is HEALTHY (1 tablet(s) checked)
+
+The metadata for 1 table(s) is HEALTHY
+OK
+----
+
+If the cluster is unhealthy, for instance if a tablet server process has
+stopped, `ksck` will report the issue(s) and return a non-zero exit status:
+
+----
+Connected to the Master
+WARNING: Unable to connect to Tablet Server 8a0b66a756014def82760a09946d1fce
+(tserver-01.example.com:7050): Network error: could not send Ping RPC to server: Client connection negotiation failed: client connection to 192.168.0.2:7050: connect: Connection refused (error 61)
+WARNING: Fetched info from 0 Tablet Servers, 1 weren't reachable
+Tablet ce3c2d27010d4253949a989b9d9bf43c of table 'IntegrationTestBigLinkedList'
+is unavailable: 1 replica(s) not RUNNING
+  8a0b66a756014def82760a09946d1fce (tserver-01.example.com:7050): TS unavailable [LEADER]
+
+  Table IntegrationTestBigLinkedList has 1 unavailable tablet(s)
+
+  WARNING: 1 out of 1 table(s) are not in a healthy state
+  ==================
+  Errors:
+  ==================
+  error fetching info from tablet servers: Network error: Not all Tablet Servers are reachable
+  table consistency check error: Corruption: 1 table(s) are bad
+
+  FAILED
+  Runtime error: ksck discovered errors
+----
+
+To verify data integrity, the optional `--checksum_scan` flag can be set, which
+will ensure the cluster has consistent data by scanning each tablet replica and
+comparing results. The `--tables` or `--tablets` flags can be used to limit the
+scope of the checksum scan to specific tables or tablets, respectively. For
+example, checking data integrity on the `IntegrationTestBigLinkedList` table can
+be done with the following command:
+
+[source,bash]
+----
+$ kudu cluster ksck --checksum_scan --tables IntegrationTestBigLinkedList master-01.example.com,master-02.example.com,master-03.example.com
+----
+
+[[disk_failure_recovery]]
+=== Recovering from Disk Failure
+
+// TODO(dan): revise this once KUDU-616 is fixed.
+Kudu tablet servers are not resilient to disk failure. When a disk containing a
+data directory or the write-ahead log (WAL) dies, the entire tablet server must
+be rebuilt. Kudu will automatically re-replicate tablets on other servers after
+a tablet server fails, but manual intervention is needed in order to restore the
+failed tablet server to a running state.
+
+The first step to restoring a tablet server after a disk failure is to replace
+the failed disk, or remove the failed disk from the data-directory and/or WAL
+configuration. Next, the contents of the data directories and WAL directory must
+be removed. For example, if the tablet server is configured with
+`--fs_wal_dir=/data/0/kudu-tserver-wal` and
+`--fs_data_dirs=/data/1/kudu-tserver,/data/2/kudu-tserver`, the following
+commands will remove the data directories and WAL directory contents:
+
+[source,bash]
+----
+$ rm -rf /data/0/kudu-tserver-wal/* /data/1/kudu-tserver/* /data/2/kudu-tserver/*
+----
+
+After the WAL and data directories are emptied, the tablet server process can be
+started. When Kudu is installed using system packages, `service` is typically
+used:
+
+[source,bash]
+----
+$ sudo service kudu-tserver start
+----
+
+Once the tablet server is running again, new tablet replicas will be created on
+it as necessary.

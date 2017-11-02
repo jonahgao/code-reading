@@ -1,0 +1,658 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+#include <cstdint>
+#include <memory>
+#include <ostream>
+#include <string>
+#include <unordered_map>
+#include <unordered_set>
+#include <utility>
+#include <vector>
+
+#include <glog/logging.h>
+#include <glog/stl_logging.h>
+#include <gtest/gtest.h>
+
+#include "kudu/client/client.h"
+#include "kudu/client/shared_ptr.h"
+#include "kudu/client/write_op.h"
+#include "kudu/clock/clock.h"
+#include "kudu/clock/hybrid_clock.h"
+#include "kudu/common/partial_row.h"
+#include "kudu/common/schema.h"
+#include "kudu/common/wire_protocol-test-util.h"
+#include "kudu/consensus/consensus-test-util.h"
+#include "kudu/consensus/consensus.pb.h"
+#include "kudu/consensus/consensus_meta.h"
+#include "kudu/consensus/consensus_meta_manager.h"
+#include "kudu/consensus/log-test-base.h"
+#include "kudu/consensus/log.h"
+#include "kudu/consensus/log_util.h"
+#include "kudu/consensus/opid.pb.h"
+#include "kudu/fs/fs_manager.h"
+#include "kudu/gutil/basictypes.h"
+#include "kudu/gutil/gscoped_ptr.h"
+#include "kudu/gutil/ref_counted.h"
+#include "kudu/gutil/strings/util.h"
+#include "kudu/integration-tests/cluster_itest_util.h"
+#include "kudu/integration-tests/cluster_verifier.h"
+#include "kudu/integration-tests/external_mini_cluster-itest-base.h"
+#include "kudu/integration-tests/external_mini_cluster.h"
+#include "kudu/integration-tests/test_workload.h"
+#include "kudu/tablet/metadata.pb.h"
+#include "kudu/tablet/tablet.pb.h"
+#include "kudu/tserver/tserver.pb.h"
+#include "kudu/util/atomic.h"
+#include "kudu/util/env.h"
+#include "kudu/util/metrics.h"
+#include "kudu/util/monotime.h"
+#include "kudu/util/random.h"
+#include "kudu/util/random_util.h"
+#include "kudu/util/status.h"
+#include "kudu/util/test_macros.h"
+#include "kudu/util/test_util.h"
+#include "kudu/util/thread.h"
+
+using std::string;
+using std::unique_ptr;
+using std::vector;
+
+namespace kudu {
+
+using client::KuduClient;
+using client::KuduClientBuilder;
+using client::KuduInsert;
+using client::KuduSession;
+using client::KuduTable;
+using client::KuduUpdate;
+using client::sp::shared_ptr;
+using clock::Clock;
+using clock::HybridClock;
+using consensus::ConsensusMetadata;
+using consensus::ConsensusMetadataManager;
+using consensus::OpId;
+using consensus::RECEIVED_OPID;
+using log::AppendNoOpsToLogSync;
+using log::Log;
+using log::LogOptions;
+
+namespace {
+// Generate a row key such that an increasing sequence (0...N) ends up spreading writes
+// across the key space as several sequential streams rather than a single sequential
+// sequence.
+int IntToKey(int i) {
+  return 100000000 * (i % 3) + i;
+}
+} // anonymous namespace
+
+class TsRecoveryITest : public ExternalMiniClusterITestBase,
+                        public ::testing::WithParamInterface<const char*> {
+ public:
+  TsRecoveryITest() { extra_tserver_flags_.emplace_back(GetParam()); }
+
+ protected:
+  void StartClusterOneTs(const vector<string>& extra_tserver_flags,
+                         const vector<string>& extra_master_flags = {});
+
+  vector<string> extra_tserver_flags_ = {};
+};
+
+void TsRecoveryITest::StartClusterOneTs(const vector<string>& extra_tserver_flags,
+                                        const vector<string>& extra_master_flags) {
+  StartCluster(extra_tserver_flags, extra_master_flags, 1 /* replicas */);
+}
+
+#if defined(__APPLE__)
+static const char* kBlockManagerFlags[] = {"--block_manager=file"};
+#else
+static const char* kBlockManagerFlags[] = {"--block_manager=log",
+                                           "--block_manager=file"};
+#endif
+
+// Passes block manager types to the recovery test so we get some extra
+// testing to cover non-default block manager types.
+// Note that this could actually be any other flags you want to pass to
+// the cluster startup, as long as they don't conflict with any test
+// specific flags.
+INSTANTIATE_TEST_CASE_P(BlockManagerType,
+                        TsRecoveryITest,
+                        ::testing::ValuesIn(kBlockManagerFlags));
+
+// Test crashing a server just before appending a COMMIT message.
+// We then restart the server and ensure that all rows successfully
+// inserted before the crash are recovered.
+TEST_P(TsRecoveryITest, TestRestartWithOrphanedReplicates) {
+  // Add the block manager type.
+  NO_FATALS(StartClusterOneTs(extra_tserver_flags_));
+
+  TestWorkload work(cluster_.get());
+  work.set_num_replicas(1);
+  work.set_num_write_threads(4);
+  work.set_write_timeout_millis(1000);
+  work.set_timeout_allowed(true);
+  work.Setup();
+
+  // Crash when the WAL contains a replicate message but no corresponding commit.
+  ASSERT_OK(cluster_->SetFlag(cluster_->tablet_server(0),
+                              "fault_crash_before_append_commit", "0.05"));
+  work.Start();
+
+  // Wait for the process to crash due to the injected fault.
+  ASSERT_OK(cluster_->tablet_server(0)->WaitForInjectedCrash(MonoDelta::FromSeconds(120)));
+
+  // Stop the writers.
+  work.StopAndJoin();
+
+  // Restart the server, and it should recover.
+  cluster_->tablet_server(0)->Shutdown();
+
+  // Restart the server and check to make sure that the change is eventually applied.
+  ASSERT_OK(cluster_->tablet_server(0)->Restart());
+
+  // TODO(KUDU-796): after a restart, we may have to replay some
+  // orphaned replicates from the log. However, we currently
+  // allow reading while those are being replayed, which means we
+  // can "go back in time" briefly. So, we have some retries here.
+  // When KUDU-796 is fixed, remove the retries.
+  ClusterVerifier v(cluster_.get());
+  NO_FATALS(v.CheckRowCountWithRetries(work.table_name(),
+                                       ClusterVerifier::AT_LEAST,
+                                       work.rows_inserted(),
+                                       MonoDelta::FromSeconds(40)));
+}
+
+// Regression test for KUDU-1477: a pending commit message would cause
+// bootstrap to fail if that message only included errors and no
+// successful operations.
+TEST_P(TsRecoveryITest, TestRestartWithPendingCommitFromFailedOp) {
+  NO_FATALS(StartClusterOneTs(extra_tserver_flags_));
+  ASSERT_OK(cluster_->SetFlag(cluster_->tablet_server(0),
+                              "fault_crash_before_append_commit", "0.01"));
+
+  // Set up the workload to write many duplicate rows, and with only
+  // one operation per batch. This means that by the time we crash
+  // it's likely that most of the recently appended commit messages
+  // are for failed insertions (dup key). We also use many threads
+  // to increase the probability that commits will be written
+  // out-of-order and trigger the bug.
+  TestWorkload work(cluster_.get());
+  work.set_num_replicas(1);
+  work.set_num_write_threads(20);
+  work.set_write_timeout_millis(100);
+  work.set_timeout_allowed(true);
+  work.set_write_batch_size(1);
+  work.set_write_pattern(TestWorkload::INSERT_WITH_MANY_DUP_KEYS);
+  work.Setup();
+  work.Start();
+
+  // Wait for the process to crash due to the injected fault.
+  ASSERT_OK(cluster_->tablet_server(0)->WaitForInjectedCrash(MonoDelta::FromSeconds(30)));
+
+  // Stop the writers.
+  work.StopAndJoin();
+
+  // Restart the server, and it should recover.
+  cluster_->tablet_server(0)->Shutdown();
+  ASSERT_OK(cluster_->tablet_server(0)->Restart());
+
+  ClusterVerifier v(cluster_.get());
+  NO_FATALS(v.CheckRowCountWithRetries(work.table_name(),
+                                       ClusterVerifier::AT_LEAST,
+                                       work.rows_inserted(),
+                                       MonoDelta::FromSeconds(20)));
+}
+
+// Test that we replay from the recovery directory, if it exists.
+TEST_P(TsRecoveryITest, TestCrashDuringLogReplay) {
+  vector<string> extra_tserver_flags_with_crash = extra_tserver_flags_;
+  extra_tserver_flags_with_crash.emplace_back("--fault_crash_during_log_replay=0.05");
+  NO_FATALS(StartClusterOneTs(extra_tserver_flags_with_crash));
+
+  TestWorkload work(cluster_.get());
+  work.set_num_replicas(1);
+  work.set_num_write_threads(4);
+  work.set_write_batch_size(1);
+  work.set_write_timeout_millis(100);
+  work.set_timeout_allowed(true);
+  work.Setup();
+  work.Start();
+  while (work.rows_inserted() < 200) {
+    SleepFor(MonoDelta::FromMilliseconds(10));
+  }
+  work.StopAndJoin();
+
+  // Now restart the server, which will result in log replay, which will crash
+  // mid-replay with very high probability since we wrote at least 200 log
+  // entries and we're injecting a fault 5% of the time.
+  cluster_->tablet_server(0)->Shutdown();
+
+  // Restart might crash very quickly and actually return a bad status, so we
+  // have to check the result.
+  Status s = cluster_->tablet_server(0)->Restart();
+
+  // Wait for the process to crash during log replay (if it didn't already crash
+  // above while we were restarting it).
+  if (s.ok()) {
+    ASSERT_OK(cluster_->tablet_server(0)->WaitForInjectedCrash(MonoDelta::FromSeconds(30)));
+  }
+
+  // Now remove the crash flag, so the next replay will complete, and restart
+  // the server once more.
+  cluster_->tablet_server(0)->Shutdown();
+  cluster_->tablet_server(0)->mutable_flags()->pop_back();
+  ASSERT_OK(cluster_->tablet_server(0)->Restart());
+
+  ClusterVerifier v(cluster_.get());
+  NO_FATALS(v.CheckRowCountWithRetries(work.table_name(),
+                                       ClusterVerifier::AT_LEAST,
+                                       work.rows_inserted(),
+                                       MonoDelta::FromSeconds(30)));
+}
+
+// Regression test for KUDU-1551: if the tserver crashes after preallocating a segment
+// but before writing its header, the TS would previously crash on restart.
+// Instead, it should ignore the uninitialized segment.
+TEST_P(TsRecoveryITest, TestCrashBeforeWriteLogSegmentHeader) {
+  extra_tserver_flags_.emplace_back("--log_segment_size_mb=1");
+  extra_tserver_flags_.emplace_back("--log_compression_codec=NO_COMPRESSION");
+  NO_FATALS(StartClusterOneTs(extra_tserver_flags_));
+  TestWorkload work(cluster_.get());
+  work.set_num_replicas(1);
+  work.set_write_timeout_millis(1000);
+  work.set_timeout_allowed(true);
+  work.set_payload_bytes(10000); // make logs roll without needing lots of ops.
+  work.Setup();
+
+  // Enable the fault point after creating the table, but before writing any data.
+  // Otherwise, we'd crash during creation of the tablet.
+  ASSERT_OK(cluster_->SetFlag(cluster_->tablet_server(0),
+                              "fault_crash_before_write_log_segment_header", "0.9"));
+  work.Start();
+
+  // Wait for the process to crash during log roll.
+  ASSERT_OK(cluster_->tablet_server(0)->WaitForInjectedCrash(MonoDelta::FromSeconds(60)));
+  work.StopAndJoin();
+
+  cluster_->tablet_server(0)->Shutdown();
+  ignore_result(cluster_->tablet_server(0)->Restart());
+
+  ClusterVerifier v(cluster_.get());
+  NO_FATALS(v.CheckRowCountWithRetries(work.table_name(),
+                                       ClusterVerifier::AT_LEAST,
+                                       work.rows_inserted(),
+                                       MonoDelta::FromSeconds(60)));
+}
+
+// Test the following scenario:
+// - an insert is written to the WAL with a cell that is valid with the configuration
+//   at the time of write (eg because it's from a version of Kudu prior to cell size
+//   limits)
+// - the server is restarted with cell size limiting enabled (or lowered)
+// - the bootstrap should fail (but not crash) because it cannot apply the cell size
+// - if we manually increase the cell size limit again, it should replay correctly.
+TEST_P(TsRecoveryITest, TestChangeMaxCellSize) {
+  // Prevent the master from tombstoning the evicted tablet so we can observe
+  // its FAILED state.
+  NO_FATALS(StartClusterOneTs(extra_tserver_flags_,
+      { "--master_tombstone_evicted_tablet_replicas=false" }));
+  TestWorkload work(cluster_.get());
+  work.set_num_replicas(1);
+  work.set_payload_bytes(10000);
+  work.Setup();
+  work.Start();
+  while (work.rows_inserted() < 50) {
+    SleepFor(MonoDelta::FromMilliseconds(50));
+  }
+  work.StopAndJoin();
+
+  // Restart the server with a lower value of max_cell_size_bytes.
+  auto* ts = cluster_->tablet_server(0);
+  ts->Shutdown();
+  ts->mutable_flags()->push_back("--max_cell_size_bytes=1000");
+  ASSERT_OK(ts->Restart());
+
+  // The bootstrap should fail and leave the tablet in FAILED state.
+  ASSERT_EVENTUALLY([&]() {
+      vector<tserver::ListTabletsResponsePB::StatusAndSchemaPB> tablets;
+      ASSERT_OK(ListTablets(ts_map_[ts->uuid()], MonoDelta::FromSeconds(10), &tablets));
+      ASSERT_EQ(1, tablets.size());
+      ASSERT_EQ(tablet::FAILED, tablets[0].tablet_status().state());
+      ASSERT_STR_CONTAINS(tablets[0].tablet_status().last_status(),
+                          "value too large for column");
+    });
+
+  // Restart the server again with the default max_cell_size.
+  // Bootstrap should succeed and all rows should be present.
+  ts->Shutdown();
+  ts->mutable_flags()->pop_back();
+  ASSERT_OK(ts->Restart());
+  ClusterVerifier v(cluster_.get());
+  NO_FATALS(v.CheckRowCountWithRetries(work.table_name(),
+                                       ClusterVerifier::EXACTLY,
+                                       work.rows_inserted(),
+                                       MonoDelta::FromSeconds(60)));
+}
+
+class TsRecoveryITestDeathTest : public TsRecoveryITest {};
+
+// Test that tablet bootstrap can automatically repair itself if it finds an
+// overflowed OpId index written to the log caused by KUDU-1933.
+// Also serves as a regression itest for KUDU-1933 by writing ops with a high
+// term and index.
+TEST_P(TsRecoveryITestDeathTest, TestRecoverFromOpIdOverflow) {
+#if defined(THREAD_SANITIZER)
+  // TSAN cannot handle spawning threads after fork().
+  return;
+#endif
+
+  // Create the initial tablet files on disk, then shut down the cluster so we
+  // can meddle with the WAL.
+  NO_FATALS(StartClusterOneTs(extra_tserver_flags_));
+  TestWorkload workload(cluster_.get());
+  workload.set_num_replicas(1);
+  workload.Setup();
+
+  vector<tserver::ListTabletsResponsePB::StatusAndSchemaPB> tablets;
+  auto* ets = cluster_->tablet_server(0);
+  auto* ts = ts_map_[ets->uuid()];
+  ASSERT_OK(ListTablets(ts, MonoDelta::FromSeconds(10), &tablets));
+  ASSERT_EQ(1, tablets.size());
+  const string& tablet_id = tablets[0].tablet_status().tablet_id();
+
+  cluster_->Shutdown();
+
+  const int64_t kOverflowedIndexValue = static_cast<int64_t>(INT32_MIN);
+  const int64_t kDesiredIndexValue = static_cast<int64_t>(INT32_MAX) + 1;
+  const int kNumOverflowedEntriesToWrite = 4;
+
+  {
+    // Append a no-op to the WAL with an overflowed term and index to simulate a
+    // crash after KUDU-1933.
+    FsManagerOpts opts;
+    opts.wal_path = ets->wal_dir();
+    opts.data_paths = ets->data_dirs();
+    gscoped_ptr<FsManager> fs_manager(new FsManager(env_, opts));
+    ASSERT_OK(fs_manager->Open());
+    scoped_refptr<ConsensusMetadataManager> cmeta_manager(
+        new ConsensusMetadataManager(fs_manager.get()));
+    scoped_refptr<Clock> clock(new HybridClock());
+    ASSERT_OK(clock->Init());
+
+    OpId opid;
+    opid.set_term(kOverflowedIndexValue);
+    opid.set_index(kOverflowedIndexValue);
+
+    ASSERT_DEATH({
+      scoped_refptr<Log> log;
+      ASSERT_OK(Log::Open(LogOptions(),
+                          fs_manager.get(),
+                          tablet_id,
+                          SchemaBuilder(GetSimpleTestSchema()).Build(),
+                          0, // schema_version
+                          nullptr,
+                          &log));
+
+      // Write a series of negative OpIds.
+      // This will cause a crash, but only after they have been written to disk.
+      ASSERT_OK(AppendNoOpsToLogSync(clock, log.get(), &opid, kNumOverflowedEntriesToWrite));
+    }, "Check failed: log_index > 0");
+
+    // Before restarting the tablet server, delete the initial log segment from
+    // disk (the original leader election NO_OP) if it exists since it will
+    // contain OpId 1.1; If the COMMIT message for this NO_OP (OpId 1.1) was
+    // not written to disk yet, then it might get written _after_ the ops with
+    // the overflowed ids above, triggering a CHECK about non sequential OpIds.
+    // If we remove the first segment then the tablet will just assume that
+    // commit messages for all replicates in previous segments have already
+    // been written, thus avoiding the check.
+    string wal_dir = fs_manager->GetTabletWalDir(tablet_id);
+    vector<string> wal_children;
+    ASSERT_OK(fs_manager->env()->GetChildren(wal_dir, &wal_children));
+    // Skip '.', '..', and index files.
+    std::unordered_set<string> wal_segments;
+    for (const auto& filename : wal_children) {
+      if (HasPrefixString(filename, FsManager::kWalFileNamePrefix)) {
+        wal_segments.insert(filename);
+      }
+    }
+    ASSERT_GE(wal_segments.size(), 2) << "Too few WAL segments. Files in dir (" << wal_dir << "): "
+                                      << wal_children;
+    // If WAL segment index 1 exists, delete it.
+    string first_segment = fs_manager->GetWalSegmentFileName(tablet_id, 1);
+    if (fs_manager->env()->FileExists(first_segment)) {
+      LOG(INFO) << "Deleting first WAL segment: " << first_segment;
+      ASSERT_OK(fs_manager->env()->DeleteFile(first_segment));
+    }
+
+    // We also need to update the ConsensusMetadata to match with the term we
+    // want to end up with.
+    scoped_refptr<ConsensusMetadata> cmeta;
+    ASSERT_OK(cmeta_manager->Load(tablet_id, &cmeta));
+    cmeta->set_current_term(kDesiredIndexValue);
+    ASSERT_OK(cmeta->Flush());
+  }
+
+  // Don't become leader because that will append another NO_OP to the log.
+  ets->mutable_flags()->push_back("--enable_leader_failure_detection=false");
+  ASSERT_OK(cluster_->Restart());
+
+  OpId last_written_opid;
+  ASSERT_EVENTUALLY([&] {
+    // Tablet bootstrap should have converted the negative OpIds to positive ones.
+    ASSERT_OK(itest::GetLastOpIdForReplica(tablet_id, ts, RECEIVED_OPID, MonoDelta::FromSeconds(5),
+                                           &last_written_opid));
+    ASSERT_TRUE(last_written_opid.IsInitialized());
+    OpId expected_opid;
+    expected_opid.set_term(kDesiredIndexValue);
+    expected_opid.set_index(static_cast<int64_t>(INT32_MAX) + kNumOverflowedEntriesToWrite);
+    ASSERT_OPID_EQ(expected_opid, last_written_opid);
+  });
+
+  // Now, write some records that will have a higher opid than INT32_MAX and
+  // ensure they get written. This checks for overflows in the write path.
+
+  // We have to first remove the flag disabling failure detection.
+  NO_FATALS(cluster_->AssertNoCrashes());
+  cluster_->Shutdown();
+  ets->mutable_flags()->pop_back();
+  ASSERT_OK(cluster_->Restart());
+
+  // Write a few records.
+  workload.Start();
+  while (workload.batches_completed() < 100) {
+    SleepFor(MonoDelta::FromMilliseconds(10));
+  }
+  workload.StopAndJoin();
+
+  // Validate.
+  OpId prev_written_opid = last_written_opid;
+  ASSERT_EVENTUALLY([&] {
+    ASSERT_OK(itest::GetLastOpIdForReplica(tablet_id, ts, RECEIVED_OPID, MonoDelta::FromSeconds(5),
+                                           &last_written_opid));
+    ASSERT_TRUE(last_written_opid.IsInitialized());
+    ASSERT_GT(last_written_opid.term(), INT32_MAX);
+    ASSERT_GT(last_written_opid.index(), INT32_MAX);
+    // Term will increase because of an election.
+    ASSERT_GT(last_written_opid.term(), prev_written_opid.term());
+    ASSERT_GT(last_written_opid.index(), prev_written_opid.index());
+  });
+  NO_FATALS(cluster_->AssertNoCrashes());
+}
+
+// A set of threads which pick rows which are known to exist in the table
+// and issue random updates against them.
+class UpdaterThreads {
+ public:
+  static const int kNumThreads = 4;
+
+  // 'inserted' is an atomic integer which stores the number of rows
+  // which have been inserted up to that point.
+  UpdaterThreads(AtomicInt<int32_t>* inserted,
+                 shared_ptr<KuduClient> client,
+                 shared_ptr<KuduTable> table)
+    : should_run_(false),
+      inserted_(inserted),
+      client_(std::move(client)),
+      table_(std::move(table)) {
+  }
+
+  // Start running the updater threads.
+  void Start() {
+    CHECK(!should_run_.Load());
+    should_run_.Store(true);
+    threads_.resize(kNumThreads);
+    for (int i = 0; i < threads_.size(); i++) {
+      CHECK_OK(kudu::Thread::Create("test", "updater",
+                                    &UpdaterThreads::Run, this,
+                                    &threads_[i]));
+    }
+  }
+
+  // Stop running the updater threads, and wait for them to exit.
+  void StopAndJoin() {
+    CHECK(should_run_.Load());
+    should_run_.Store(false);
+
+    for (const auto& t : threads_) {
+      t->Join();
+    }
+    threads_.clear();
+  }
+
+ protected:
+  void Run() {
+    Random rng(GetRandomSeed32());
+    shared_ptr<KuduSession> session = client_->NewSession();
+    session->SetTimeoutMillis(2000);
+    CHECK_OK(session->SetFlushMode(KuduSession::MANUAL_FLUSH));
+    while (should_run_.Load()) {
+      int i = inserted_->Load();
+      if (i == 0) continue;
+
+      gscoped_ptr<KuduUpdate> up(table_->NewUpdate());
+      CHECK_OK(up->mutable_row()->SetInt32("key", IntToKey(rng.Uniform(i) + 1)));
+      CHECK_OK(up->mutable_row()->SetInt32("int_val", rng.Next32()));
+      CHECK_OK(session->Apply(up.release()));
+      // The server might crash due to a compaction while we're still updating.
+      // That's OK - we expect the main thread to shut us down quickly.
+      WARN_NOT_OK(session->Flush(), "failed to flush updates");
+    }
+  }
+
+  AtomicBool should_run_;
+  AtomicInt<int32_t>* inserted_;
+  shared_ptr<KuduClient> client_;
+  shared_ptr<KuduTable> table_;
+  vector<scoped_refptr<Thread> > threads_;
+};
+
+// Parameterized test which acts as a regression test for KUDU-969.
+//
+// This test is parameterized on the name of a fault point configuration.
+// The fault points exercised crashes right before flushing the tablet metadata
+// during a flush/compaction. Meanwhile, a set of threads hammer rows with
+// a lot of updates. The goal here is to trigger the following race:
+//
+// - a compaction is in "duplicating" phase (i.e. updates are written to both
+//   the input and output rowsets
+// - we crash (due to the fault point) before writing the new metadata
+//
+// This exercises the bootstrap code path which replays duplicated updates
+// in the case where the flush did not complete. Prior to fixing KUDU-969,
+// these updates would be mistakenly considered as "already flushed", despite
+// the fact that they were only written to the input rowset's memory stores, and
+// never hit disk.
+class Kudu969Test : public TsRecoveryITest {
+};
+INSTANTIATE_TEST_CASE_P(DifferentFaultPoints,
+                        Kudu969Test,
+                        ::testing::Values("fault_crash_before_flush_tablet_meta_after_compaction",
+                                          "fault_crash_before_flush_tablet_meta_after_flush_mrs"));
+
+TEST_P(Kudu969Test, Test) {
+  if (!AllowSlowTests()) return;
+
+  // We use a replicated cluster here so that the 'REPLICATE' messages
+  // and 'COMMIT' messages are spread out further in time, and it's
+  // more likely to trigger races. We can also verify that the server
+  // with the injected fault recovers to the same state as the other
+  // servers.
+  const int kThreeReplicas = 3;
+
+  // Jack up the number of maintenance manager threads to try to trigger
+  // concurrency bugs where a compaction and a flush might be happening
+  // at the same time during the crash.
+  NO_FATALS(StartCluster({"--maintenance_manager_num_threads=3"}, {}, kThreeReplicas));
+
+  // Set a small flush threshold so that we flush a lot (causing more compactions
+  // as well).
+  ASSERT_OK(cluster_->SetFlag(cluster_->tablet_server(0), "flush_threshold_mb", "1"));
+
+  // Use TestWorkload to create a table
+  TestWorkload work(cluster_.get());
+  work.set_num_replicas(kThreeReplicas);
+  work.Setup();
+
+  // Open the client and table.
+  shared_ptr<KuduClient> client;
+  ASSERT_OK(cluster_->CreateClient(nullptr, &client));
+  shared_ptr<KuduTable> table;
+  CHECK_OK(client->OpenTable(work.table_name(), &table));
+
+  // Keep track of how many rows have been inserted.
+  AtomicInt<int32_t> inserted(0);
+
+  // Start updater threads.
+  UpdaterThreads updater(&inserted, client, table);
+  updater.Start();
+
+  // Enable the fault point to crash after a few flushes or compactions.
+  auto ts = cluster_->tablet_server(0);
+  ASSERT_OK(cluster_->SetFlag(ts, GetParam(), "0.3"));
+
+  // Insert some data.
+  shared_ptr<KuduSession> session = client->NewSession();
+  session->SetTimeoutMillis(1000);
+  CHECK_OK(session->SetFlushMode(KuduSession::MANUAL_FLUSH));
+  for (int i = 1; ts->IsProcessAlive(); i++) {
+    gscoped_ptr<KuduInsert> ins(table->NewInsert());
+    ASSERT_OK(ins->mutable_row()->SetInt32("key", IntToKey(i)));
+    ASSERT_OK(ins->mutable_row()->SetInt32("int_val", i));
+    ASSERT_OK(ins->mutable_row()->SetNull("string_val"));
+    ASSERT_OK(session->Apply(ins.release()));
+    if (i % 100 == 0) {
+      WARN_NOT_OK(session->Flush(), "could not flush session");
+      inserted.Store(i);
+    }
+  }
+  LOG(INFO) << "successfully detected TS crash!";
+  updater.StopAndJoin();
+
+  // Restart the TS to trigger bootstrap, and wait for it to start up.
+  ts->Shutdown();
+  ASSERT_OK(ts->Restart());
+  ASSERT_OK(cluster_->WaitForTabletsRunning(ts, -1, MonoDelta::FromSeconds(180)));
+
+  // Verify that the bootstrapped server matches the other replications, which
+  // had no faults.
+  ClusterVerifier v(cluster_.get());
+  v.SetVerificationTimeout(MonoDelta::FromSeconds(30));
+  NO_FATALS(v.CheckCluster());
+}
+
+} // namespace kudu

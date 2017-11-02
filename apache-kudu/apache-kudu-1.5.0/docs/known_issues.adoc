@@ -1,0 +1,188 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+[[known_issues_and_limitations]]
+= Known Issues and Limitations
+
+:author: Kudu Team
+:imagesdir: ./images
+:icons: font
+:toc: left
+:toclevels: 3
+:doctype: book
+:backend: html5
+:sectlinks:
+:experimental:
+
+== Schema
+
+=== Primary keys
+
+* The primary key may not be changed after the table is created.
+  You must drop and recreate a table to select a new primary key.
+
+* The columns which make up the primary key must be listed first in the schema.
+
+* The primary key of a row may not be modified using the `UPDATE` functionality.
+  To modify a row's primary key, the row must be deleted and re-inserted with
+  the modified key. Such a modification is non-atomic.
+
+* Columns with `DOUBLE`, `FLOAT`, or `BOOL` types are not allowed as part of a
+  primary key definition. Additionally, all columns that are part of a primary
+  key definition must be `NOT NULL`.
+
+* Auto-generated primary keys are not supported.
+
+* Cells making up a composite primary key are limited to a total of 16KB after the internal
+  composite-key encoding done by Kudu.
+
+=== Columns
+
+* DECIMAL, CHAR, VARCHAR, DATE, and complex types like ARRAY are not supported.
+
+* Type and nullability of existing columns cannot be changed by altering the table.
+
+* Tables can have a maximum of 300 columns.
+
+=== Tables
+
+* Tables must have an odd number of replicas, with a maximum of 7.
+
+* Replication factor (set at table creation time) cannot be changed.
+
+=== Cells (individual values)
+
+* Cells cannot be larger than 64KB before encoding or compression.
+
+=== Other usage limitations
+
+* Kudu is primarily designed for analytic use cases. You are likely to encounter issues if
+  a single row contains multiple kilobytes of data.
+
+* Secondary indexes are not supported.
+
+* Multi-row transactions are not supported.
+
+* Relational features, like foreign keys, are not supported.
+
+* Identifiers such as column and table names are restricted to be valid UTF-8 strings.
+  Additionally, a maximum length of 256 characters is enforced.
+
+* Dropping a column does not immediately reclaim space. Compaction must run first.
+
+* There is no way to run compaction manually, but dropping the table will reclaim the
+  space immediately.
+
+== Partitioning Limitations
+
+* Tables must be manually pre-split into tablets using simple or compound primary
+  keys. Automatic splitting is not yet possible. Range partitions may be added
+  or dropped after a table has been created. See
+  link:schema_design.html[Schema Design] for more information.
+
+* Data in existing tables cannot currently be automatically repartitioned. As a workaround,
+  create a new table with the new partitioning and insert the contents of the old
+  table.
+
+* Tablets that lose a majority of replicas (such as 1 left out of 3) require manual
+  intervention to be repaired.
+
+== Cluster management
+
+* Rack awareness is not supported.
+
+* Multi-datacenter is not supported.
+
+* Rolling restart is not supported.
+
+== Server management
+
+* Production deployments should configure a least 4GB of memory for tablet servers,
+  and ideally more than 16GB when approaching the data and tablet <<Scale>> limits.
+
+* Write ahead logs (WAL) can only be stored on one disk.
+
+* Disk failures are not tolerated and tablets servers will crash as soon as one is detected.
+
+* Failed disks with unrecoverable data require the formatting of all the Kudu data for
+  that tablet server before it can be started again.
+
+* Data directories cannot be added/removed; all must be reformatted to change the set
+  of directories.
+
+* Tablet servers cannot be gracefully decommissioned.
+
+* Tablet servers can’t change address/port.
+
+* Kudu has a hard requirement on having up-to-date NTP. Kudu masters and tablet servers
+  will crash when out of sync.
+
+* Kudu releases are only tested with NTP. Other time synchronization providers like Chrony
+  may or may not work.
+
+== Scale
+
+* Recommended maximum number of tablet servers is 100.
+
+* Recommended maximum number of masters is 3.
+
+* Recommended maximum amount of stored data, post-replication and post-compression,
+  per tablet server is 8TB.
+
+* Recommended maximum number of tablets per tablet server is 2000, post-replication.
+
+* Maximum number of tablets per table for each tablet server is 60, post-replication,
+  at table-creation time.
+
+== Replication and Backup Limitations
+
+* Kudu does not currently include any built-in features for backup and restore.
+  Users are encouraged to use tools such as Spark or Impala to export or import
+  tables as necessary.
+
+== Security Limitations
+
+* Authorization is only available at a system-wide, coarse-grained level. Table-level,
+  column-level, and row-level authorization features are not available.
+
+* Data encryption at rest is not built in. Kudu has been reported to run correctly
+  on systems using local block device encryption (e.g. `dmcrypt`).
+
+* Kudu server Kerberos principals must follow the pattern `kudu/<HOST>@DEFAULT.REALM`.
+  Configuring an alternate Kerberos principal is not supported.
+
+* Kudu's integration with Apache Flume does not support writing to Kudu clusters that
+  require Kerberos authentication.
+
+== Other Known Issues
+
+The following are known bugs and issues with the current release of Kudu. They will
+be addressed in later releases. Note that this list is not exhaustive, and is meant
+to communicate only the most important known issues.
+
+* If the Kudu master is configured with the `-log_force_fsync_all` option, tablet servers
+  and clients will experience frequent timeouts, and the cluster may become unusable.
+
+* If a tablet server has a very large number of tablets, it may take several minutes
+  to start up. It is recommended to limit the number of tablets per server to 100 or fewer.
+  Consider this limitation when pre-splitting your tables. If you notice slow start-up times,
+  you can monitor the number of tablets per server in the web UI.
+
+* Kerberos authentication does not function correctly on hosts which contain
+  capital letters in their hostname.
+
+* Kerberos authentication does not function correctly if `rdns = false` is configured
+  in `krb5.conf`.
