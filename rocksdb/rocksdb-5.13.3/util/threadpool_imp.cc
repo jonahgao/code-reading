@@ -190,6 +190,7 @@ void ThreadPoolImpl::Impl::BGThread(size_t thread_id) {
 // Wait until there is an item that is ready to run
     std::unique_lock<std::mutex> lock(mu_);
     // Stop waiting if the thread needs to do work or needs to terminate.
+    // IsExcessiveThread：需要停止的线程，不再做任务，等待通知满足IsLastExcessiveThread
     while (!exit_all_threads_ && !IsLastExcessiveThread(thread_id) &&
            (queue_.empty() || IsExcessiveThread(thread_id))) {
       bgsignal_.wait(lock);

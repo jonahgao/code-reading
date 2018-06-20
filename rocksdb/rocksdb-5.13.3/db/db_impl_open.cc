@@ -64,12 +64,14 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src) {
   result.env->IncBackgroundThreadsIfNeeded(bg_job_limits.max_flushes,
                                            Env::Priority::HIGH);
 
+  // 如果启用限速，bytes_per_sync设为1M
   if (result.rate_limiter.get() != nullptr) {
     if (result.bytes_per_sync == 0) {
       result.bytes_per_sync = 1024 * 1024;
     }
   }
 
+  // 设置delayed_write_rate的默认值: 跟随rate_limiter如果有；或者一个固定值
   if (result.delayed_write_rate == 0) {
     if (result.rate_limiter.get() != nullptr) {
       result.delayed_write_rate = result.rate_limiter->GetBytesPerSecond();
@@ -79,6 +81,7 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src) {
     }
   }
 
+  // 如果延迟删除归档的WAL，则不重用之前的WAL log
   if (result.WAL_ttl_seconds > 0 || result.WAL_size_limit_MB > 0) {
     result.recycle_log_file_num = false;
   }
@@ -98,6 +101,7 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src) {
     // Use dbname as default
     result.wal_dir = dbname;
   }
+  // 去除目录最后的斜杠
   if (result.wal_dir.back() == '/') {
     result.wal_dir = result.wal_dir.substr(0, result.wal_dir.size() - 1);
   }
@@ -106,12 +110,15 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src) {
     result.db_paths.emplace_back(dbname, std::numeric_limits<uint64_t>::max());
   }
 
+  // 如果是使用direct_io，则没有操作系统的缓存，compaction时自己多读一些，block read
   if (result.use_direct_io_for_flush_and_compaction &&
       result.compaction_readahead_size == 0) {
     TEST_SYNC_POINT_CALLBACK("SanitizeOptions:direct_io", nullptr);
     result.compaction_readahead_size = 1024 * 1024 * 2;
   }
 
+  // 如果compaction有特殊的read策略，则compaction读文件时为其建立单独的table_reader
+  // 不与执行用户查询的table reader复用，以免造成影响
   if (result.compaction_readahead_size > 0 ||
       result.use_direct_io_for_flush_and_compaction) {
     result.new_table_reader_for_compaction_inputs = true;
