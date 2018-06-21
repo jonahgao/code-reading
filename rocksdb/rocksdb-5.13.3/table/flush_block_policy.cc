@@ -41,6 +41,10 @@ class FlushBlockBySizePolicy : public FlushBlockPolicy {
     // 2) block_size_deviation is set and the estimated size after appending
     // the kv will exceed the block size and the current size is under the
     // the deviation.
+    // flush条件：  当前KV会写入下一个block
+    // 1) 当前size已经达到block_size_
+    // 2) 满足AlmostFull条件: 加上待插入的KV大小超出block_size_且当前大小大于某个阈值（避免flush一个非常空余的block）
+    //                        比如当前只有1字节，现在插入KV大小为2倍block_size_
     return curr_size >= block_size_ || BlockAlmostFull(key, value);
   }
 

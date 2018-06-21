@@ -44,6 +44,7 @@ class FlushBlockPolicyFactory {
   virtual ~FlushBlockPolicyFactory() { }
 };
 
+// 默认策略, 按block size flush
 class FlushBlockBySizePolicyFactory : public FlushBlockPolicyFactory {
  public:
   FlushBlockBySizePolicyFactory() {}

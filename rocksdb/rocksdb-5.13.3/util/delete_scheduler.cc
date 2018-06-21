@@ -100,6 +100,7 @@ std::map<std::string, Status> DeleteScheduler::GetBackgroundErrors() {
 }
 
 const std::string DeleteScheduler::kTrashExtension = ".trash";
+// .trash结尾的文件
 bool DeleteScheduler::IsTrashFile(const std::string& file_path) {
   return (file_path.size() >= kTrashExtension.size() &&
           file_path.rfind(kTrashExtension) ==

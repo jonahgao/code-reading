@@ -63,18 +63,21 @@ struct BlockBasedTableOptions {
   // Indicating if we'd put index/filter blocks to the block cache.
   // If not specified, each "table reader" object will pre-load index/filter
   // block during table initialization.
+   // 在 block cache 中缓存 index 和 filter block
   bool cache_index_and_filter_blocks = false;
 
   // If cache_index_and_filter_blocks is enabled, cache index and filter
   // blocks with high priority. If set to true, depending on implementation of
   // block cache, index and filter blocks may be less likely to be evicted
   // than data blocks.
+  // 比数据block优先级高，不容易从block cache中淘汰
   bool cache_index_and_filter_blocks_with_high_priority = false;
 
   // if cache_index_and_filter_blocks is true and the below is true, then
   // filter and index blocks are stored in the cache, but a reference is
   // held in the "table reader" object so the blocks are pinned and only
   // evicted from cache when the table reader is freed.
+  // pin到table reader中，只要 table reader 在就不会被淘汰
   bool pin_l0_filter_and_index_blocks_in_cache = false;
 
   // The index type that will be used for this table.
@@ -109,6 +112,7 @@ struct BlockBasedTableOptions {
 
   // If non-NULL use the specified cache for blocks.
   // If NULL, rocksdb will automatically create and use an 8MB internal cache.
+  // 不指定，默认有个8MB的
   std::shared_ptr<Cache> block_cache = nullptr;
 
   // If non-NULL use the specified cache for pages read from device
@@ -136,6 +140,7 @@ struct BlockBasedTableOptions {
   // This parameter can be changed dynamically.  Most clients should
   // leave this parameter alone.  The minimum value allowed is 1.  Any smaller
   // value will be silently overwritten with 1.
+  // 前缀压缩重启点间隔 （隔几个写次全量key）
   int block_restart_interval = 16;
 
   // Same as block_restart_interval but used for the index block.
@@ -200,6 +205,7 @@ struct BlockBasedTableOptions {
   // treated as 4, a value of 19 will be treated as 16.
   //
   // Default: 0 (disabled)
+  // 读放大采样
   uint32_t read_amp_bytes_per_bit = 0;
 
   // We currently have three versions:
