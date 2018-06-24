@@ -74,6 +74,7 @@ enum ContentFlags : uint32_t {
   HAS_BLOB_INDEX = 1 << 10,
 };
 
+// 迭代WriteBatch，用于计算存在哪些类型
 struct BatchContentClassifier : public WriteBatch::Handler {
   uint32_t content_flags = 0;
 
@@ -136,8 +137,10 @@ struct SavePoints {
 
 WriteBatch::WriteBatch(size_t reserved_bytes, size_t max_bytes)
     : save_points_(nullptr), content_flags_(0), max_bytes_(max_bytes), rep_() {
+  // 最少预分配一个header(8字节seq + 4字节count)长度
   rep_.reserve((reserved_bytes > WriteBatchInternal::kHeader) ?
     reserved_bytes : WriteBatchInternal::kHeader);
+  // header占位
   rep_.resize(WriteBatchInternal::kHeader);
 }
 
@@ -198,6 +201,7 @@ bool WriteBatch::Handler::Continue() {
 
 void WriteBatch::Clear() {
   rep_.clear();
+  // 保持初始状态即有header的空间
   rep_.resize(WriteBatchInternal::kHeader);
 
   content_flags_.store(0, std::memory_order_relaxed);
@@ -217,6 +221,7 @@ int WriteBatch::Count() const {
 
 uint32_t WriteBatch::ComputeContentFlags() const {
   auto rv = content_flags_.load(std::memory_order_relaxed);
+  // 需要延迟计算,遍历计算
   if ((rv & ContentFlags::DEFERRED) != 0) {
     BatchContentClassifier classifier;
     Iterate(&classifier);
@@ -257,11 +262,14 @@ bool WriteBatch::HasMerge() const {
   return (ComputeContentFlags() & ContentFlags::HAS_MERGE) != 0;
 }
 
+// 从Batch的条目中读出key
 bool ReadKeyFromWriteBatchEntry(Slice* input, Slice* key, bool cf_record) {
   assert(input != nullptr && key != nullptr);
   // Skip tag byte
+  // tag，即type 类型信息
   input->remove_prefix(1);
 
+  // cf类型的记录，跳过cf id
   if (cf_record) {
     // Skip column_family bytes
     uint32_t cf;
@@ -290,6 +298,7 @@ bool WriteBatch::HasRollback() const {
   return (ComputeContentFlags() & ContentFlags::HAS_ROLLBACK) != 0;
 }
 
+// 从batch(input)中读取decode一条记录
 Status ReadRecordFromWriteBatch(Slice* input, char* tag,
                                 uint32_t* column_family, Slice* key,
                                 Slice* value, Slice* blob, Slice* xid) {
@@ -388,12 +397,14 @@ Status ReadRecordFromWriteBatch(Slice* input, char* tag,
   return Status::OK();
 }
 
+// 遍历并使用handler处理Batch内的记录
 Status WriteBatch::Iterate(Handler* handler) const {
   Slice input(rep_);
   if (input.size() < WriteBatchInternal::kHeader) {
     return Status::Corruption("malformed WriteBatch (too small)");
   }
 
+  // 跳过Batch的Header
   input.remove_prefix(WriteBatchInternal::kHeader);
   Slice key, value, blob, xid;
   // Sometimes a sub-batch starts with a Noop. We want to exclude such Noops as
@@ -583,8 +594,8 @@ Status WriteBatchInternal::Put(WriteBatch* b, uint32_t column_family_id,
     return Status::InvalidArgument("value is too large");
   }
 
-  LocalSavePoint save(b);
-  WriteBatchInternal::SetCount(b, WriteBatchInternal::Count(b) + 1);
+  LocalSavePoint save(b); // 修改之前设置一个保存点，如果下面的修改提交失败，则会回滚到这个保存点
+  WriteBatchInternal::SetCount(b, WriteBatchInternal::Count(b) + 1); // count + 1
   if (column_family_id == 0) {
     b->rep_.push_back(static_cast<char>(kTypeValue));
   } else {
@@ -605,6 +616,7 @@ Status WriteBatch::Put(ColumnFamilyHandle* column_family, const Slice& key,
                                  value);
 }
 
+// 保证key，value数组的总长度不会越界uint32
 Status WriteBatchInternal::CheckSlicePartsLength(const SliceParts& key,
                                                  const SliceParts& value) {
   size_t total_key_bytes = 0;
@@ -979,6 +991,7 @@ Status WriteBatch::PopSavePoint() {
   return Status::OK();
 }
 
+// 把Writebatch内的记录插入到Memtable
 class MemTableInserter : public WriteBatch::Handler {
 
   SequenceNumber sequence_;

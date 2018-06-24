@@ -92,6 +92,9 @@ class WriteBatchBase {
   //
   // Example application: add timestamps to the transaction log for use in
   // replication.
+  // 会存储到事物日志。但不会持久化到其他文件，如SST
+  // 不消耗seq，不增加batch条目个数
+  // 用例：添加用于复制的时间戳
   virtual Status PutLogData(const Slice& blob) = 0;
 
   // Clear all updates buffered in this batch.
@@ -104,18 +107,21 @@ class WriteBatchBase {
 
   // Records the state of the batch for future calls to RollbackToSavePoint().
   // May be called multiple times to set multiple save points.
+  // 设置一个保存点
   virtual void SetSavePoint() = 0;
 
   // Remove all entries in this batch (Put, Merge, Delete, PutLogData) since the
   // most recent call to SetSavePoint() and removes the most recent save point.
   // If there is no previous call to SetSavePoint(), behaves the same as
   // Clear().
+  // 回滚到上一个保存点，如果没有保存点 效果等同于Clear
   virtual Status RollbackToSavePoint() = 0;
 
   // Pop the most recent save point.
   // If there is no previous call to SetSavePoint(), Status::NotFound()
   // will be returned.
   // Otherwise returns Status::OK().
+  // 删除最近的保存点。没有会出错
   virtual Status PopSavePoint() = 0;
 
   // Sets the maximum size of the write batch in bytes. 0 means no limit.

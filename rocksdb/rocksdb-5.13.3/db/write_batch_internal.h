@@ -221,7 +221,9 @@ class LocalSavePoint {
 #ifndef NDEBUG
     committed_ = true;
 #endif
+    // Batch有最大字节数限制，则检查
     if (batch_->max_bytes_ && batch_->rep_.size() > batch_->max_bytes_) {
+      // 超过则回滚本次修改
       batch_->rep_.resize(savepoint_.size);
       WriteBatchInternal::SetCount(batch_, savepoint_.count);
       batch_->content_flags_.store(savepoint_.content_flags,

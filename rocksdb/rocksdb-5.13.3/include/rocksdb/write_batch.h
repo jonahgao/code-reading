@@ -74,6 +74,7 @@ class WriteBatch : public WriteBatchBase {
   // Variant of Put() that gathers output like writev(2).  The key and value
   // that will be written to the database are concatenations of arrays of
   // slices.
+  // array part of key or value，整个数组串接起来组成一个key或者value
   Status Put(ColumnFamilyHandle* column_family, const SliceParts& key,
              const SliceParts& value) override;
   Status Put(const SliceParts& key, const SliceParts& value) override {
@@ -173,6 +174,7 @@ class WriteBatch : public WriteBatchBase {
   Status PopSavePoint() override;
 
   // Support for iterating over the contents of a batch.
+  // 遍历WriteBatch中的记录
   class Handler {
    public:
     virtual ~Handler();
@@ -267,6 +269,7 @@ class WriteBatch : public WriteBatchBase {
     // Continue is called by WriteBatch::Iterate. If it returns false,
     // iteration is halted. Otherwise, it continues iterating. The default
     // implementation always returns true.
+    // 是否停止迭代
     virtual bool Continue();
 
    protected:
@@ -337,14 +340,16 @@ class WriteBatch : public WriteBatchBase {
   // remove duplicate keys. Remove it when the hack is replaced with a proper
   // solution.
   friend class WriteBatchWithIndex;
-  SavePoints* save_points_;
+  SavePoints* save_points_; // 栈，保存所有保存点
 
   // When sending a WriteBatch through WriteImpl we might want to
   // specify that only the first x records of the batch be written to
   // the WAL.
+  // 用于指定前面多少内容将写入WAL
   SavePoint wal_term_point_;
 
   // For HasXYZ.  Mutable to allow lazy computation of results
+  // 记录batch内是否存在某个类型的Record(如HasPut)
   mutable std::atomic<uint32_t> content_flags_;
 
   // Performs deferred computation of content_flags if necessary
