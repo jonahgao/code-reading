@@ -656,6 +656,8 @@ Status BlobDBImpl::Put(const WriteOptions& options, const Slice& key,
                        const Slice& value) {
   std::string new_value;
   Slice value_slice;
+  // 处理用户自定义的ttl_extractor逻辑（如果有）；返回过期时间和新Key value
+  // 如果没有，返回的过期时间为kNoExpiration，key，value还是原来的
   uint64_t expiration = ExtractExpiration(key, value, &value_slice, &new_value);
   return PutUntil(options, key, value_slice, expiration);
 }

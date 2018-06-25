@@ -31,10 +31,11 @@ namespace blob_db {
  */
 class Reader {
  public:
+  // 读取记录的哪些部分
   enum ReadLevel {
-    kReadHeader,
-    kReadHeaderKey,
-    kReadHeaderKeyBlob,
+    kReadHeader,  // 只读取记录头部
+    kReadHeaderKey, // 只读取头部 + key
+    kReadHeaderKeyBlob, // 读取头部 + key + blob（全部)
   };
 
   // Create a reader that will return log records from "*file".

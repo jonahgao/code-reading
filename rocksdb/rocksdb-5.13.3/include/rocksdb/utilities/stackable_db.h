@@ -385,8 +385,8 @@ class StackableDB : public DB {
   }
 
  protected:
-  DB* db_;
-  std::shared_ptr<DB> shared_db_ptr_;
+  DB* db_; // 底层db
+  std::shared_ptr<DB> shared_db_ptr_; // 不独占底层db
 };
 
 } //  namespace rocksdb

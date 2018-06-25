@@ -46,15 +46,18 @@ class Writer {
   Writer(const Writer&) = delete;
   Writer& operator=(const Writer&) = delete;
 
+  // 构建记录的头部，key，value用于计算长度和CRC
   static void ConstructBlobHeader(std::string* buf, const Slice& key,
                                   const Slice& val, uint64_t expiration);
 
+  // 添加记录，返回key和blob的offset（用于索引）
   Status AddRecord(const Slice& key, const Slice& val, uint64_t* key_offset,
                    uint64_t* blob_offset);
 
   Status AddRecord(const Slice& key, const Slice& val, uint64_t expiration,
                    uint64_t* key_offset, uint64_t* blob_offset);
 
+  // 写入记录
   Status EmitPhysicalRecord(const std::string& headerbuf, const Slice& key,
                             const Slice& val, uint64_t* key_offset,
                             uint64_t* blob_offset);
@@ -82,7 +85,7 @@ class Writer {
   uint64_t log_number_;
   uint64_t block_offset_;  // Current offset in block
   uint64_t bytes_per_sync_;
-  uint64_t next_sync_offset_;
+  uint64_t next_sync_offset_; // block_offset_ 大于此值时则需要Sync
   bool use_fsync_;
 
  public:

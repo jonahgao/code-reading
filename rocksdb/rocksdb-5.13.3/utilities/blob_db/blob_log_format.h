@@ -44,7 +44,7 @@ struct BlobLogHeader {
   uint32_t version = kVersion1;
   uint32_t column_family_id = 0;
   CompressionType compression = kNoCompression;
-  bool has_ttl = false;
+  bool has_ttl = false; // 编码到flags
   ExpirationRange expiration_range = std::make_pair(0, 0);
 
   void EncodeTo(std::string* dst);
