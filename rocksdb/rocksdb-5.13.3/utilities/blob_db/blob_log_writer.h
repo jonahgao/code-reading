@@ -90,7 +90,7 @@ class Writer {
 
  public:
   enum ElemType { kEtNone, kEtFileHdr, kEtRecord, kEtFileFooter };
-  ElemType last_elem_type_;
+  ElemType last_elem_type_; // 上一次写入的记录类型，用来写入时检查(比如写入header时，需要上条记录为 kEtNone)
 };
 
 }  // namespace blob_db

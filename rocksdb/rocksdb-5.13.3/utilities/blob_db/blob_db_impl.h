@@ -206,6 +206,7 @@ class BlobDBImpl : public BlobDB {
 
   // Create a snapshot if there isn't one in read options.
   // Return true if a snapshot is created.
+  // 填充ReadOptions的snapshot字段，如果snapshot字段之前没有设置
   bool SetSnapshotIfNeeded(ReadOptions* read_options);
 
   Status GetImpl(const ReadOptions& read_options,
@@ -363,9 +364,11 @@ class BlobDBImpl : public BlobDB {
   std::atomic<uint64_t> next_file_number_;
 
   // entire metadata of all the BLOB files memory
+  // 包含带ttl和不带ttl的所有blob文件
   std::map<uint64_t, std::shared_ptr<BlobFile>> blob_files_;
 
   // epoch or version of the open files.
+  // 乐观锁
   std::atomic<uint64_t> epoch_of_;
 
   // opened non-TTL blob file.
@@ -373,6 +376,8 @@ class BlobDBImpl : public BlobDB {
 
   // all the blob files which are currently being appended to based
   // on variety of incoming TTL's
+  // 存储带 TTL KV 的可写入的blob文件，按照不同的过期时间范围组织，
+  // 每个blob负责一个过期时间范围(BlobDBOption.ttl_range_secs)
   std::set<std::shared_ptr<BlobFile>, blobf_compare_ttl> open_ttl_files_;
 
   // Flag to check whether Close() has been called on this DB

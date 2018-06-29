@@ -366,6 +366,7 @@ std::shared_ptr<BlobFile> BlobDBImpl::FindBlobFileLocked(
     return nullptr;
   }
 
+  // 查找过期范围包含expiration的blob文件
   std::shared_ptr<BlobFile> tmp = std::make_shared<BlobFile>();
   tmp->SetHasTTL(true);
   tmp->expiration_range_ = std::make_pair(expiration, 0);
@@ -442,6 +443,7 @@ std::shared_ptr<BlobFile> BlobDBImpl::SelectBlobFile() {
   bfile->SetHasTTL(false);
   bfile->SetCompression(bdb_options_.compression);
 
+  // 写blob文件头部
   Status s = writer->WriteHeader(bfile->header_);
   if (!s.ok()) {
     ROCKS_LOG_ERROR(db_options_.info_log,
@@ -463,6 +465,7 @@ std::shared_ptr<BlobFile> BlobDBImpl::SelectBlobFileTTL(uint64_t expiration) {
   std::shared_ptr<BlobFile> bfile;
   {
     ReadLock rl(&mutex_);
+    // 查找过期范围包含expiration的blob文件
     bfile = FindBlobFileLocked(expiration);
     epoch_read = epoch_of_.load();
   }
@@ -472,6 +475,7 @@ std::shared_ptr<BlobFile> BlobDBImpl::SelectBlobFileTTL(uint64_t expiration) {
     return bfile;
   }
 
+  // 没找到，创建一个, 过期时间范围按照ttl_range_secs对齐
   uint64_t exp_low =
       (expiration / bdb_options_.ttl_range_secs) * bdb_options_.ttl_range_secs;
   uint64_t exp_high = exp_low + bdb_options_.ttl_range_secs;
@@ -512,6 +516,8 @@ std::shared_ptr<BlobFile> BlobDBImpl::SelectBlobFileTTL(uint64_t expiration) {
   WriteLock wl(&mutex_);
   // in case the epoch has shifted in the interim, then check
   // check condition again - should be rare.
+  // version变了，可能别人已经创建了包含expiration的blob文件
+  // 再确认一次
   if (epoch_of_.load() != epoch_read) {
     auto bfile2 = FindBlobFileLocked(expiration);
     if (bfile2) return bfile2;
@@ -682,8 +688,10 @@ Status BlobDBImpl::PutUntil(const WriteOptions& options, const Slice& key,
     // flush begin listener, which also require write_mutex_ to sync
     // blob files.
     MutexLock l(&write_mutex_);
+    // 写blob记录，插入index到bath
     s = PutBlobValue(options, key, value, expiration, &batch);
   }
+  // 写batch
   if (s.ok()) {
     s = db_->Write(options, &batch);
   }
@@ -706,6 +714,8 @@ Status BlobDBImpl::PutBlobValue(const WriteOptions& /*options*/,
       RecordTick(statistics_, BLOB_DB_WRITE_INLINED);
     } else {
       // Inlined with TTL
+      // key + expiration + value 编码到index_entry中
+      // 之后作为一个BlobIndex类型的batch记录插入到WriteBatch中
       BlobIndex::EncodeInlinedTTL(&index_entry, expiration, value);
       s = WriteBatchInternal::PutBlobIndex(batch, column_family_id, key,
                                            index_entry);
@@ -713,26 +723,31 @@ Status BlobDBImpl::PutBlobValue(const WriteOptions& /*options*/,
     }
   } else {
     std::string compression_output;
+    // 压缩，如果blob db选项里有配置
     Slice value_compressed = GetCompressedSlice(value, &compression_output);
 
+    // blob记录头部
     std::string headerbuf;
     Writer::ConstructBlobHeader(&headerbuf, key, value_compressed, expiration);
 
     // Check DB size limit before selecting blob file to
     // Since CheckSizeAndEvictBlobFiles() can close blob files, it needs to be
     // done before calling SelectBlobFile().
+    // 检查是否超出max_db_size, 如果超出会清理过期或者比较旧的blob文件
     s = CheckSizeAndEvictBlobFiles(headerbuf.size() + key.size() +
                                    value_compressed.size());
     if (!s.ok()) {
       return s;
     }
 
+    // 根据KV是否包含过期，选择不同的blob文件
     std::shared_ptr<BlobFile> bfile = (expiration != kNoExpiration)
                                           ? SelectBlobFileTTL(expiration)
                                           : SelectBlobFile();
     assert(bfile != nullptr);
     assert(bfile->compression() == bdb_options_.compression);
 
+    // 写入blob文件，并返回blob记录的索引(index_entry)
     s = AppendBlob(bfile, headerbuf, key, value_compressed, expiration,
                    &index_entry);
     if (expiration == kNoExpiration) {
@@ -745,8 +760,10 @@ Status BlobDBImpl::PutBlobValue(const WriteOptions& /*options*/,
       if (expiration != kNoExpiration) {
         bfile->ExtendExpirationRange(expiration);
       }
+      // 是否blob文件写满了，需要关闭
       s = CloseBlobFileIfNeeded(bfile);
       if (s.ok()) {
+        // 插入blob index到LSM树中的WriteBatch中
         s = WriteBatchInternal::PutBlobIndex(batch, column_family_id, key,
                                              index_entry);
       }
@@ -838,6 +855,7 @@ Status BlobDBImpl::CheckSizeAndEvictBlobFiles(uint64_t blob_size,
                                               bool force_evict) {
   write_mutex_.AssertHeld();
 
+  // 是否超过最大db size的限制（如果有配置），包括所有sst file的总大小和blob file的总大小
   uint64_t live_sst_size = live_sst_size_.load();
   if (bdb_options_.max_db_size == 0 ||
       live_sst_size + total_blob_size_.load() + blob_size <=

@@ -199,6 +199,7 @@ class PinnableSlice : public Slice, public Cleanable {
 
 // A set of Slices that are virtually concatenated together.  'parts' points
 // to an array of Slices.  The number of elements in the array is 'num_parts'.
+// 一个slice数组，串接到一起组成一个Slice
 struct SliceParts {
   SliceParts(const Slice* _parts, int _num_parts) :
       parts(_parts), num_parts(_num_parts) { }
