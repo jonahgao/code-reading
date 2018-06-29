@@ -562,6 +562,7 @@ class BlobDBImpl::BlobInserter : public WriteBatch::Handler {
       return Status::NotSupported(
           "Blob DB doesn't support non-default column family.");
     }
+    // 写blob记录到blob文件中，并且插入索引记录到batch_中，等待后续一起写入底层db
     std::string new_value;
     Slice value_slice;
     uint64_t expiration =
@@ -577,6 +578,7 @@ class BlobDBImpl::BlobInserter : public WriteBatch::Handler {
       return Status::NotSupported(
           "Blob DB doesn't support non-default column family.");
     }
+    // 插入一条Delete记录
     Status s = WriteBatchInternal::Delete(&batch_, column_family_id, key);
     return s;
   }
@@ -605,12 +607,14 @@ class BlobDBImpl::BlobInserter : public WriteBatch::Handler {
   virtual void LogData(const Slice& blob) override { batch_.PutLogData(blob); }
 };
 
+// 写一个Batch
 Status BlobDBImpl::Write(const WriteOptions& options, WriteBatch* updates) {
   StopWatch write_sw(env_, statistics_, BLOB_DB_WRITE_MICROS);
   RecordTick(statistics_, BLOB_DB_NUM_WRITE);
   uint32_t default_cf_id =
       reinterpret_cast<ColumnFamilyHandleImpl*>(DefaultColumnFamily())->GetID();
   Status s;
+  // 遍历处理原始batch(updates)
   BlobInserter blob_inserter(options, this, default_cf_id);
   {
     // Release write_mutex_ before DB write to avoid race condition with
@@ -622,6 +626,7 @@ Status BlobDBImpl::Write(const WriteOptions& options, WriteBatch* updates) {
   if (!s.ok()) {
     return s;
   }
+  // 最终写入底层db的是经过处理后的新的一个WriteBatch
   return db_->Write(options, blob_inserter.batch());
 }
 
@@ -691,7 +696,7 @@ Status BlobDBImpl::PutUntil(const WriteOptions& options, const Slice& key,
     // 写blob记录，插入index到bath
     s = PutBlobValue(options, key, value, expiration, &batch);
   }
-  // 写batch
+  // 写batch, 直接调用底层db的write
   if (s.ok()) {
     s = db_->Write(options, &batch);
   }
@@ -871,6 +876,7 @@ Status BlobDBImpl::CheckSizeAndEvictBlobFiles(uint64_t blob_size,
         "Write failed, as writing it would exceed max_db_size limit.");
   }
 
+  // 挑选有TTL的文件
   std::vector<std::shared_ptr<BlobFile>> candidate_files;
   CopyBlobFiles(&candidate_files,
                 [&](const std::shared_ptr<BlobFile>& blob_file) {

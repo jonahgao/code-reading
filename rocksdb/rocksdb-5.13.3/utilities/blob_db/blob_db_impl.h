@@ -399,11 +399,13 @@ class BlobDBImpl : public BlobDB {
   // Latest FIFO eviction timestamp
   //
   // REQUIRES: access with metex_ lock held.
+  // 最近一次淘汰时当时的db seq
   uint64_t fifo_eviction_seq_;
 
   // The expiration up to which latest FIFO eviction evicts.
   //
   // REQUIRES: access with metex_ lock held.
+  // 最近一个淘汰时，淘汰到了哪个过期时间
   uint64_t evict_expiration_up_to_;
 
   std::list<std::shared_ptr<BlobFile>> obsolete_files_;

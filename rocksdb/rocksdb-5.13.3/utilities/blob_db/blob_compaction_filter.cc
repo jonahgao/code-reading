@@ -49,12 +49,14 @@ class BlobIndexCompactionFilter : public CompactionFilter {
       // Unable to decode blob index. Keeping the value.
       return Decision::kKeep;
     }
+    // 过期的kv, 删除
     if (blob_index.HasTTL() && blob_index.expiration() <= current_time_) {
       // Expired
       expired_count_++;
       expired_size_ += key.size() + value.size();
       return Decision::kRemove;
     }
+    // 找不到对应的blob文件(文件被gc或者被淘汰），删除
     if (!blob_index.IsInlined() &&
         blob_index.file_number() < context_.next_file_number &&
         context_.current_blob_files.count(blob_index.file_number()) == 0) {
@@ -64,6 +66,7 @@ class BlobIndexCompactionFilter : public CompactionFilter {
       evicted_size_ += key.size() + value.size();
       return Decision::kRemove;
     }
+    // 该blob已经被淘汰
     if (context_.fifo_eviction_seq > 0 && blob_index.HasTTL() &&
         blob_index.expiration() < context_.evict_expiration_up_to) {
       // Hack: Internal key is passed to BlobIndexCompactionFilter for it to
@@ -72,6 +75,7 @@ class BlobIndexCompactionFilter : public CompactionFilter {
       bool ok = ParseInternalKey(key, &ikey);
       // Remove keys that could have been remove by last FIFO eviction.
       // If get error while parsing key, ignore and continue.
+      // 小于fifo_eviction_seq，表示kv写入后执行的淘汰
       if (ok && ikey.sequence < context_.fifo_eviction_seq) {
         evicted_count_++;
         evicted_size_ += key.size() + value.size();
