@@ -77,6 +77,7 @@ extern int FindFile(const InternalKeyComparator& icmp,
 // largest==nullptr represents a key largest than all keys in the DB.
 // REQUIRES: If disjoint_sorted_files, file_level.files[]
 // contains disjoint ranges in sorted order.
+// disjoint_sorted_files: 各个文件范围不相交，且按范围排好序的
 extern bool SomeFileOverlapsRange(const InternalKeyComparator& icmp,
                                   bool disjoint_sorted_files,
                                   const LevelFilesBrief& file_level,
@@ -393,6 +394,7 @@ class VersionStorageInfo {
   // @param last_level Level after which we check for overlap
   // @param last_l0_idx If `last_level == 0`, index of L0 file after which we
   //    check for overlap; otherwise, must be -1
+  // 检查范围是否会出现在比last_l0_idx老的L0文件或者比last_level更高的level
   bool RangeMightExistAfterSortedRun(const Slice& smallest_key,
                                      const Slice& largest_key, int last_level,
                                      int last_l0_idx);
@@ -415,16 +417,19 @@ class VersionStorageInfo {
 
   // List of files per level, files in each level are arranged
   // in increasing order of keys
+  // 各个层次的SST文件，按照key增序排列
   std::vector<FileMetaData*>* files_;
 
   // Level that L0 data should be compacted to. All levels < base_level_ should
   // be empty. -1 if it is not level-compaction so it's not applicable.
+  // L0 compact到哪一层
   int base_level_;
 
   // A list for the same set of files that are stored in files_,
   // but files in each level are now sorted based on file
   // size. The file with the largest size is at the front.
   // This vector stores the index of the file from files_.
+  // 每层文件按file size从大到小排序，vector存放文件在files_中的index
   std::vector<std::vector<int>> files_by_compaction_pri_;
 
   // If true, means that files in L0 have keys with non overlapping ranges
@@ -444,6 +449,7 @@ class VersionStorageInfo {
   // This vector contains list of files marked for compaction and also not
   // currently being compacted. It is protected by DB mutex. It is calculated in
   // ComputeCompactionScore()
+  // 每层待compact的文件
   autovector<std::pair<int, FileMetaData*>> files_marked_for_compaction_;
 
   // These files are considered bottommost because none of their keys can exist
@@ -452,6 +458,7 @@ class VersionStorageInfo {
   // versions that are no longer protected by snapshot. These variables are
   // protected by DB mutex and are calculated in `GenerateBottommostFiles()` and
   // `ComputeBottommostFilesMarkedForCompaction()`.
+  // 文件key范围跟所有下层文件范围（或者没有更下层的文件）不重叠
   autovector<std::pair<int, FileMetaData*>> bottommost_files_;
   autovector<std::pair<int, FileMetaData*>>
       bottommost_files_marked_for_compaction_;

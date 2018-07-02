@@ -293,8 +293,8 @@ class VersionEdit {
   bool has_last_sequence_;
   bool has_max_column_family_;
 
-  DeletedFileSet deleted_files_;
-  std::vector<std::pair<int, FileMetaData>> new_files_;
+  DeletedFileSet deleted_files_; // key是level， value是file number
+  std::vector<std::pair<int, FileMetaData>> new_files_; // key是level
 
   // Each version edit record should have column_family_id set
   // If it's not set, it is default (0)

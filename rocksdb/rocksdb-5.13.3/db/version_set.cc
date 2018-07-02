@@ -57,6 +57,7 @@ namespace {
 
 // Find File in LevelFilesBrief data structure
 // Within an index range defined by left and right
+// 在file_level的[left, right)区间内二分查找key
 int FindFileInRange(const InternalKeyComparator& icmp,
     const LevelFilesBrief& file_level,
     const Slice& key,
@@ -2539,6 +2540,7 @@ bool VersionStorageInfo::RangeMightExistAfterSortedRun(
   // bottommost only if it's the oldest L0 file and there are no files on older
   // levels. It'd be better to consider it bottommost if there's no overlap in
   // older levels/files.
+  // 只有0层；那么只有是最后一个L0文件才算作是不重叠
   if (last_level == 0 &&
       last_l0_idx != static_cast<int>(LevelFiles(0).size() - 1)) {
     return true;
