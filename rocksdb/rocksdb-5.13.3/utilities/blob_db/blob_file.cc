@@ -303,6 +303,7 @@ Status BlobFile::ReadMetadata(Env* env, const EnvOptions& env_options) {
   s = footer.DecodeFrom(footer_slice);
   if (!s.ok()) {
     // OK not to have footer.
+    // 有可能读到的不是footer
     assert(!footer_valid_);
     return Status::OK();
   }

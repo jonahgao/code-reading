@@ -193,8 +193,8 @@ class PinnableSlice : public Slice, public Cleanable {
  private:
   friend class PinnableSlice4Test;
   std::string self_space_;
-  std::string* buf_;
-  bool pinned_ = false;
+  std::string* buf_;  // slice的buffer由自己管理
+  bool pinned_ = false;  // 为true表示slice的buffer不是自己管理的
 };
 
 // A set of Slices that are virtually concatenated together.  'parts' points

@@ -394,6 +394,7 @@ class BlobDBImpl : public BlobDB {
   std::atomic<uint64_t> total_blob_size_;
 
   // total size of SST files.
+  //Base DB flush 和 compaction完成后会更新(通过BlobDBListener监听)
   std::atomic<uint64_t> live_sst_size_;
 
   // Latest FIFO eviction timestamp
@@ -408,6 +409,7 @@ class BlobDBImpl : public BlobDB {
   // 最近一个淘汰时，淘汰到了哪个过期时间
   uint64_t evict_expiration_up_to_;
 
+  // 待删除的blob文件，有可能被快照引用
   std::list<std::shared_ptr<BlobFile>> obsolete_files_;
 
   uint32_t debug_level_;

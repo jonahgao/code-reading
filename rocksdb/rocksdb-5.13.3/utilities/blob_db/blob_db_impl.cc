@@ -1175,6 +1175,8 @@ Status BlobDBImpl::GetImpl(const ReadOptions& read_options,
   // Get a snapshot to avoid blob file get deleted between we
   // fetch and index entry and reading from the file.
   // TODO(yiwu): For Get() retry if file not found would be a simpler strategy.
+  // 始终先获取一个快照，如果ReadOption里提供了就使用，没有就创建一个
+  // 避免GC重写时把blob文件删除
   ReadOptions ro(read_options);
   bool snapshot_created = SetSnapshotIfNeeded(&ro);
 
@@ -1290,6 +1292,7 @@ void BlobDBImpl::ObsoleteBlobFile(std::shared_ptr<BlobFile> blob_file,
   }
 }
 
+// 是否可能被快照引用
 bool BlobDBImpl::VisibleToActiveSnapshot(
     const std::shared_ptr<BlobFile>& bfile) {
   assert(bfile->Obsolete());
@@ -1344,6 +1347,7 @@ std::pair<bool, int64_t> BlobDBImpl::CheckSeqFiles(bool aborted) {
 Status BlobDBImpl::SyncBlobFiles() {
   MutexLock l(&write_mutex_);
 
+  // 所有可写的文件
   std::vector<std::shared_ptr<BlobFile>> process_files;
   {
     ReadLock rl(&mutex_);
@@ -1550,6 +1554,8 @@ Status BlobDBImpl::GCFileAndUpdateLSM(const std::shared_ptr<BlobFile>& bfptr,
                       s.ToString().c_str());
       break;
     }
+    // 被覆写 检测：被覆写为Inlined或者索引信息不一致(新的索引）
+    // 丢弃blob记录
     if (blob_index.IsInlined() ||
         blob_index.file_number() != bfptr->BlobFileNumber() ||
         blob_index.offset() != blob_offset) {
@@ -1638,7 +1644,7 @@ Status BlobDBImpl::GCFileAndUpdateLSM(const std::shared_ptr<BlobFile>& bfptr,
     if (rewrite_status.ok()) {
       gc_stats->num_keys_relocated++;
       gc_stats->bytes_relocated += record.record_size();
-    } else if (rewrite_status.IsBusy()) {
+    } else if (rewrite_status.IsBusy()) { // callback可能会返回busy（写入时冲突）
       // The key is overwritten in the meanwhile. Drop the blob record.
       gc_stats->num_keys_overwritten++;
       gc_stats->bytes_overwritten += record.record_size();
@@ -1653,6 +1659,8 @@ Status BlobDBImpl::GCFileAndUpdateLSM(const std::shared_ptr<BlobFile>& bfptr,
 
   {
     WriteLock wl(&mutex_);
+    // GetLatestSequenceNumber() >= 重写完的所有新index的seq
+    // 如果所有快照seq >= GetLatestSequenceNumber(), 则该文件肯定不会再被快照引用，可以删除
     ObsoleteBlobFile(bfptr, GetLatestSequenceNumber(), true /*update_size*/);
   }
 
