@@ -55,6 +55,8 @@ class MemTableRep {
  public:
   // KeyComparator provides a means to compare keys, which are internal keys
   // concatenated with values.
+  // 用于比较handle(里面有key，有value）的key部分
+  // 需要先读key长度，再解出key，再比较key
   class KeyComparator {
    public:
     // Compare a and b. Return a negative value if a is less than b, 0 if they
@@ -75,12 +77,14 @@ class MemTableRep {
   // better. By allowing it to allocate memory, it can possibly put
   // correlated stuff in consecutive memory area to make processor
   // prefetching more efficient.
+  // 由memtable的实现里分配内存，方便优化（比如使用连续内存）
   virtual KeyHandle Allocate(const size_t len, char** buf);
 
   // Insert key into the collection. (The caller will pack key and value into a
   // single buffer and pass that in as the parameter to Insert).
   // REQUIRES: nothing that compares equal to key is currently in the
   // collection, and no concurrent modifications to the table in progress
+  // handle里有打包好的key(internal)和value
   virtual void Insert(KeyHandle handle) = 0;
 
   // Same as ::Insert
@@ -146,6 +150,7 @@ class MemTableRep {
   // Default:
   // Get() function with a default value of dynamically construct an iterator,
   // seek and call the call back function.
+  // 如果callback_func返回false，则结束；否则继续寻找下一个key
   virtual void Get(const LookupKey& k, void* callback_args,
                    bool (*callback_func)(void* arg, const char* entry));
 

@@ -61,6 +61,7 @@ class RangeDelAggregator {
   // be specified to advance one-by-one through deletions until one is found
   // with its interval containing the key. This will typically be faster than
   // doing a full binary search (kBinarySearch).
+  // 如果 collapse_deletions_ 是false，则只能使用kFullScan模式
   enum RangePositioningMode {
     kFullScan,  // used iff collapse_deletions_ == false
     kForwardTraversal,
@@ -99,6 +100,7 @@ class RangeDelAggregator {
   // @param end User key representing end of range to check for overlap. This
   //     argument is inclusive, so the existence of a range deletion covering
   //     `end` causes this to return true.
+ // 检测user key [start, end] 范围是否跟某个range delete范围重叠
   bool IsRangeOverlapped(const Slice& start, const Slice& end);
 
   bool ShouldAddTombstones(bool bottommost_level = false);

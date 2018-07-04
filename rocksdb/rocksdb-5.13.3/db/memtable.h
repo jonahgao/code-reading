@@ -78,6 +78,7 @@ struct MemTablePostProcessInfo {
 // written to (aka the 'immutable memtables').
 class MemTable {
  public:
+  // 特殊的比较器，比较打包好的keyvalue里的key部分
   struct KeyComparator : public MemTableRep::KeyComparator {
     const InternalKeyComparator comparator;
     explicit KeyComparator(const InternalKeyComparator& c) : comparator(c) { }
@@ -390,7 +391,7 @@ class MemTable {
   AllocTracker mem_tracker_;
   ConcurrentArena arena_;
   unique_ptr<MemTableRep> table_;
-  unique_ptr<MemTableRep> range_del_table_;
+  unique_ptr<MemTableRep> range_del_table_; // 保存range delete类型的key value
   bool is_range_del_table_empty_;
 
   // Total data size of all data inserted

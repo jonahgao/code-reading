@@ -576,7 +576,7 @@ extern Status ReadRecordFromWriteBatch(Slice* input, char* tag,
 // the struct here is a easy-understood form
 // start/end_key_ is the start/end user key of the range to be deleted
 struct RangeTombstone {
-  Slice start_key_;
+  Slice start_key_; // user key
   Slice end_key_;
   SequenceNumber seq_;
   RangeTombstone() = default;

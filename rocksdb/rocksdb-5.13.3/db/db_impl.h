@@ -311,6 +311,7 @@ class DBImpl : public DB {
   // Returns OK or NotFound on success,
   // other status on unexpected error.
   // TODO(andrewkr): this API need to be aware of range deletion operations
+  // cache_only: true只找memtable， false也会检查sst
   Status GetLatestSequenceForKey(SuperVersion* sv, const Slice& key,
                                  bool cache_only, SequenceNumber* seq,
                                  bool* found_record_for_key,
