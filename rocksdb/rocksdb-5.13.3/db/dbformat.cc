@@ -30,6 +30,7 @@ namespace rocksdb {
 const ValueType kValueTypeForSeek = kTypeBlobIndex;
 const ValueType kValueTypeForSeekForPrev = kTypeDeletion;
 
+// 高7字节是seq，最低字节是type
 uint64_t PackSequenceAndType(uint64_t seq, ValueType t) {
   assert(seq <= kMaxSequenceNumber);
   assert(IsExtendedValueType(t));

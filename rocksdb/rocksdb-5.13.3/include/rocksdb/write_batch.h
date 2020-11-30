@@ -58,6 +58,10 @@ struct SavePoint {
   bool is_cleared() const { return (size | count | content_flags) == 0; }
 };
 
+// rep格式：Header（8字节seq + 4字节count）
+//         Entry(Type + 修改内容)
+//         ....
+//         Entry
 class WriteBatch : public WriteBatchBase {
  public:
   explicit WriteBatch(size_t reserved_bytes = 0, size_t max_bytes = 0);
