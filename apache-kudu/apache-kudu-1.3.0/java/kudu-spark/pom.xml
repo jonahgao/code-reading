@@ -181,7 +181,7 @@
                 <activeByDefault>true</activeByDefault>
             </activation>
             <properties>
-                <spark.version>1.6.1</spark.version>
+                <spark.version>99.9.9</spark.version>
                 <spark.version.label>spark</spark.version.label>
                 <scala.version>2.10.4</scala.version>
                 <scala.binary.version>2.10</scala.binary.version>
