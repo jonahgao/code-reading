@@ -1105,3 +1105,6 @@ option(WITH_TOOLS "build with tools" ON)
 if(WITH_TOOLS)
   add_subdirectory(tools)
 endif()
+
+# add my test
+add_subdirectory(zzz)
