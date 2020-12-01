@@ -3658,7 +3658,7 @@ Status DBImpl::IngestExternalFiles(
       return Status::InvalidArgument(err_msg);
     }
   }
-  for (const auto& arg : args) {
+  for (const auto& arg : args) {  // 如果DB的allow_ingest_behind选项为false，则Ingest时不允许设置ingest_behind
     const IngestExternalFileOptions& ingest_opts = arg.options;
     if (ingest_opts.ingest_behind &&
         !immutable_db_options_.allow_ingest_behind) {
@@ -3670,7 +3670,7 @@ Status DBImpl::IngestExternalFiles(
   // TODO (yanqin) maybe handle the case in which column_families have
   // duplicates
   std::list<uint64_t>::iterator pending_output_elem;
-  size_t total = 0;
+  size_t total = 0; // 注入的文件总个数（各个cf之和）
   for (const auto& arg : args) {
     total += arg.external_files.size();
   }

@@ -138,7 +138,7 @@ struct SstFileWriter::Rep {
     return Status::OK();
   }
 
-  void InvalidatePageCache(bool closing) {
+  void InvalidatePageCache(bool closing) {  // 每写入1MB，向OS建议丢弃page cache里该文件的内容
     if (invalidate_page_cache == false) {
       // Fadvise disabled
       return;
@@ -187,7 +187,7 @@ Status SstFileWriter::Open(const std::string& file_path) {
   sst_file->SetIOPriority(r->io_priority);
 
   CompressionType compression_type;
-  CompressionOptions compression_opts;
+  CompressionOptions compression_opts;  // 压缩方式倾向使用最底层level的配置
   if (r->ioptions.bottommost_compression != kDisableCompressionOption) {
     compression_type = r->ioptions.bottommost_compression;
     if (r->ioptions.bottommost_compression_opts.enabled) {

@@ -876,7 +876,7 @@ class WritableFile {
 
  protected:
   Env::IOPriority io_priority_;
-  Env::WriteLifeTimeHint write_hint_;
+  Env::WriteLifeTimeHint write_hint_;   // 传递给内核关于文件生命周期的提示（相同生命周期的数据尽量放一起如在一个erase block内，避免如NVMe等GC时的拷贝操作）
   const bool strict_bytes_per_sync_;
 };
 
