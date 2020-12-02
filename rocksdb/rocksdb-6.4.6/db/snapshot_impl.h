@@ -43,7 +43,7 @@ class SnapshotImpl : public Snapshot {
   bool is_write_conflict_boundary_;
 };
 
-class SnapshotList {
+class SnapshotList { // 双向链表
  public:
   SnapshotList() {
     list_.prev_ = &list_;

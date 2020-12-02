@@ -476,7 +476,7 @@ struct DBOptions {
   // faster, so it is rarely necessary to set this option. It is provided
   // as a workaround for kernel/filesystem bugs, such as one that affected
   // fdatasync with ext4 in kernel versions prior to 3.7.
-  bool use_fsync = false;
+  bool use_fsync = false;   // 默认（false）表示使用fdatasync，true表示使用fsync
 
   // A list of paths where SST files can be put into, with its target size.
   // Newer data is placed into paths specified earlier in the vector while

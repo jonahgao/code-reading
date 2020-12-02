@@ -54,7 +54,7 @@ Status ExternalSstFileIngestionJob::Prepare(
   auto num_files = files_to_ingest_.size();
   if (num_files == 0) {
     return Status::InvalidArgument("The list of files is empty");
-  } else if (num_files > 1) {
+  } else if (num_files > 1) {       // 注入的文件的key范围不能重叠
     // Verify that passed files dont have overlapping ranges
     autovector<const IngestedFileInfo*> sorted_files;
     for (size_t i = 0; i < num_files; i++) {
@@ -97,14 +97,14 @@ Status ExternalSstFileIngestionJob::Prepare(
         TableFileName(cfd_->ioptions()->cf_paths, f.fd.GetNumber(),
                       f.fd.GetPathId());
     if (ingestion_options_.move_files) {
-      status = env_->LinkFile(path_outside_db, path_inside_db);
+      status = env_->LinkFile(path_outside_db, path_inside_db);   // 硬连接
       if (status.ok()) {
         // It is unsafe to assume application had sync the file and file
         // directory before ingest the file. For integrity of RocksDB we need
         // to sync the file.
         std::unique_ptr<WritableFile> file_to_sync;
         status = env_->ReopenWritableFile(path_inside_db, &file_to_sync,
-                                          env_options_);
+                                          env_options_);  // 重新打开调用sync，确保持久化
         if (status.ok()) {
           TEST_SYNC_POINT(
               "ExternalSstFileIngestionJob::BeforeSyncIngestedFile");
@@ -302,7 +302,7 @@ void ExternalSstFileIngestionJob::Cleanup(const Status& status) {
       }
     }
     consumed_seqno_ = false;
-  } else if (status.ok() && ingestion_options_.move_files) {
+  } else if (status.ok() && ingestion_options_.move_files) {  // 硬链接，成功后删除原始文件
     // The files were moved and added successfully, remove original file links
     for (IngestedFileInfo& f : files_to_ingest_) {
       Status s = env_->DeleteFile(f.external_file_path);

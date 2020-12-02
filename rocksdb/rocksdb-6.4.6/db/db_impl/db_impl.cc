@@ -3637,7 +3637,7 @@ Status DBImpl::IngestExternalFiles(
   if (args.empty()) {
     return Status::InvalidArgument("ingestion arg list is empty");
   }
-  {
+  {  // 确保vector里的每个IngestExternalFileArg的cf不同
     std::unordered_set<ColumnFamilyHandle*> unique_cfhs;
     for (const auto& arg : args) {
       if (arg.column_family == nullptr) {

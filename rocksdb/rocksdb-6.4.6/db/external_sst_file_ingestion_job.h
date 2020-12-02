@@ -165,7 +165,7 @@ class ExternalSstFileIngestionJob {
 
   Env* env_;
   VersionSet* versions_;
-  ColumnFamilyData* cfd_;
+  ColumnFamilyData* cfd_;  // 一个job注入的都是同一个cf
   const ImmutableDBOptions& db_options_;
   const EnvOptions& env_options_;
   SnapshotList* db_snapshots_;
