@@ -115,7 +115,7 @@ struct FileMetaData {
                                // has initialized from file.
 
   bool marked_for_compaction;  // True if client asked us nicely to compact this
-                               // file.
+                               // file.  用户调用 SuggestCompactRange 或者 创建时发现 delete 的条目较多后标记(table properties collector)
 
   FileMetaData()
       : table_reader_handle(nullptr),

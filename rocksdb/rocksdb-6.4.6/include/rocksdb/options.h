@@ -1368,7 +1368,7 @@ struct FlushOptions {
   // until it's possible to do flush w/o causing stall or until required flush
   // is performed by someone else (foreground call or background thread).
   // Default: false
-  bool allow_write_stall;
+  bool allow_write_stall;  // 为true表示不受write stall条件限制，直接flush；false表示需要等write stall(如果有)
   FlushOptions() : wait(true), allow_write_stall(false) {}
 };
 

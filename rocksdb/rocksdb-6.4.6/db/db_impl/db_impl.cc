@@ -3709,7 +3709,7 @@ Status DBImpl::IngestExternalFiles(
   }
   TEST_SYNC_POINT("DBImpl::IngestExternalFiles:BeforeLastJobPrepare:0");
   TEST_SYNC_POINT("DBImpl::IngestExternalFiles:BeforeLastJobPrepare:1");
-  {
+  { // TODO: 为啥单独留一个到最后才Prepare
     auto* cfd =
         static_cast<ColumnFamilyHandleImpl*>(args[0].column_family)->cfd();
     SuperVersion* super_version = cfd->GetReferencedSuperVersion(&mutex_);
@@ -3758,7 +3758,7 @@ Status DBImpl::IngestExternalFiles(
     TEST_SYNC_POINT("DBImpl::IngestExternalFile:AfterIncIngestFileCounter");
 
     bool at_least_one_cf_need_flush = false;
-    std::vector<bool> need_flush(num_cfs, false);
+    std::vector<bool> need_flush(num_cfs, false);  // 检查是否跟memtable有重叠，有重叠则需要flush
     for (size_t i = 0; i != num_cfs; ++i) {
       auto* cfd =
           static_cast<ColumnFamilyHandleImpl*>(args[i].column_family)->cfd();
@@ -3782,7 +3782,7 @@ Status DBImpl::IngestExternalFiles(
 
     if (status.ok() && at_least_one_cf_need_flush) {
       FlushOptions flush_opts;
-      flush_opts.allow_write_stall = true;
+      flush_opts.allow_write_stall = true;  // 不受write stall限制，可以直接flush
       if (immutable_db_options_.atomic_flush) {
         autovector<ColumnFamilyData*> cfds_to_flush;
         SelectColumnFamiliesForAtomicFlush(&cfds_to_flush);

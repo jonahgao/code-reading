@@ -1319,7 +1319,7 @@ class DBImpl : public DB {
 
   // Force current memtable contents to be flushed.
   Status FlushMemTable(ColumnFamilyData* cfd, const FlushOptions& options,
-                       FlushReason flush_reason, bool writes_stopped = false);
+                       FlushReason flush_reason, bool writes_stopped = false); // writes_stopped: 是否已经停写
 
   Status AtomicFlushMemTables(
       const autovector<ColumnFamilyData*>& column_family_datas,

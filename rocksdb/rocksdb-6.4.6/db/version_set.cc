@@ -2120,7 +2120,7 @@ int VersionStorageInfo::MaxInputLevel() const {
 }
 
 int VersionStorageInfo::MaxOutputLevel(bool allow_ingest_behind) const {
-  if (allow_ingest_behind) {
+  if (allow_ingest_behind) {  // 如果设置了allow_ingest_behind, 最底层是预留给ingest用的，不能正常使用
     assert(num_levels() > 1);
     return num_levels() - 2;
   }
@@ -2243,7 +2243,7 @@ void VersionStorageInfo::ComputeCompactionScore(
     const MutableCFOptions& mutable_cf_options) {
   for (int level = 0; level <= MaxInputLevel(); level++) {
     double score;
-    if (level == 0) {
+    if (level == 0) {   // L0按文件个数计算分数：L0有重叠，文件个数影响读时候的merge数量
       // We treat level-0 specially by bounding the number of files
       // instead of number of bytes for two reasons:
       //
@@ -2258,7 +2258,7 @@ void VersionStorageInfo::ComputeCompactionScore(
       int num_sorted_runs = 0;
       uint64_t total_size = 0;
       for (auto* f : files_[level]) {
-        if (!f->being_compacted) {
+        if (!f->being_compacted) { // 正在被compact的L0文件不计入
           total_size += f->compensated_file_size;
           num_sorted_runs++;
         }
@@ -2302,7 +2302,7 @@ void VersionStorageInfo::ComputeCompactionScore(
                      mutable_cf_options.max_bytes_for_level_base);
         }
       }
-    } else {
+    } else { // 其他层按照当前大小总和 / 该层最大大小
       // Compute the ratio of current size to size limit.
       uint64_t level_bytes_no_compacting = 0;
       for (auto f : files_[level]) {
@@ -2321,7 +2321,7 @@ void VersionStorageInfo::ComputeCompactionScore(
   // first. Use bubble sort because the number of entries are small.
   for (int i = 0; i < num_levels() - 2; i++) {
     for (int j = i + 1; j < num_levels() - 1; j++) {
-      if (compaction_score_[i] < compaction_score_[j]) {
+      if (compaction_score_[i] < compaction_score_[j]) {  // 冒泡排序，score高的在前面
         double score = compaction_score_[i];
         int level = compaction_level_[i];
         compaction_score_[i] = compaction_score_[j];
